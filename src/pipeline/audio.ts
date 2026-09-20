@@ -10,12 +10,20 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname } from 'node:path';
+import { resampleSinc } from './resample';
 
 export interface DecodedAudio {
   samples: Float32Array;
   sampleRate: number;
   durationMs: number;
   channels: number;
+  /** Per-channel samples, only populated when the caller asks for stereo. */
+  channelData?: Float32Array[];
+}
+
+export interface LoadAudioOptions {
+  /** Decode and expose the individual channels (default false). */
+  stereo?: boolean;
 }
 
 const TARGET_SAMPLE_RATE = 16000;
@@ -112,12 +120,18 @@ export function decodeWav(buf: Buffer | Uint8Array): DecodedAudio {
   const frameSize = bytesPerSample * format.channels;
   const frameCount = Math.floor(data.length / frameSize);
   const samples = new Float32Array(frameCount);
+  const channelData: Float32Array[] = [];
+  for (let channel = 0; channel < format.channels; channel++) {
+    channelData.push(new Float32Array(frameCount));
+  }
 
   for (let frame = 0; frame < frameCount; frame++) {
     const base = frame * frameSize;
     let sum = 0;
     for (let channel = 0; channel < format.channels; channel++) {
-      sum += readSample(data, base + channel * bytesPerSample, format);
+      const value = readSample(data, base + channel * bytesPerSample, format);
+      channelData[channel]![frame] = value;
+      sum += value;
     }
     samples[frame] = sum / format.channels;
   }
@@ -125,7 +139,7 @@ export function decodeWav(buf: Buffer | Uint8Array): DecodedAudio {
   const sampleRate = format.sampleRate > 0 ? format.sampleRate : TARGET_SAMPLE_RATE;
   const durationMs = (samples.length / sampleRate) * 1000;
 
-  return { samples, sampleRate, durationMs, channels: format.channels };
+  return { samples, sampleRate, durationMs, channels: format.channels, channelData };
 }
 
 /** Resample mono audio with linear interpolation. */
@@ -221,8 +235,25 @@ function toFloat32(buffer: Buffer): Float32Array {
   return new Float32Array(aligned);
 }
 
-async function decodeWithFfmpeg(path: string, ffmpeg: string): Promise<DecodedAudio> {
-  const args = ['-v', 'error', '-i', path, '-f', 'f32le', '-ac', '1', '-ar', String(TARGET_SAMPLE_RATE), 'pipe:1'];
+async function decodeWithFfmpeg(
+  path: string,
+  ffmpeg: string,
+  stereo: boolean,
+): Promise<DecodedAudio> {
+  const channels = stereo ? 2 : 1;
+  const args = [
+    '-v',
+    'error',
+    '-i',
+    path,
+    '-f',
+    'f32le',
+    '-ac',
+    String(channels),
+    '-ar',
+    String(TARGET_SAMPLE_RATE),
+    'pipe:1',
+  ];
 
   const chunks = await new Promise<Buffer[]>((resolve, reject) => {
     const child = spawn(ffmpeg, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -242,30 +273,64 @@ async function decodeWithFfmpeg(path: string, ffmpeg: string): Promise<DecodedAu
     });
   });
 
-  const samples = toFloat32(Buffer.concat(chunks));
+  const interleaved = toFloat32(Buffer.concat(chunks));
+  if (!stereo) {
+    return {
+      samples: interleaved,
+      sampleRate: TARGET_SAMPLE_RATE,
+      durationMs: (interleaved.length / TARGET_SAMPLE_RATE) * 1000,
+      channels: 1,
+    };
+  }
+
+  const frameCount = Math.floor(interleaved.length / 2);
+  const left = new Float32Array(frameCount);
+  const right = new Float32Array(frameCount);
+  const samples = new Float32Array(frameCount);
+  for (let frame = 0; frame < frameCount; frame++) {
+    const l = interleaved[frame * 2] ?? 0;
+    const r = interleaved[frame * 2 + 1] ?? 0;
+    left[frame] = l;
+    right[frame] = r;
+    samples[frame] = (l + r) / 2;
+  }
+
   return {
     samples,
     sampleRate: TARGET_SAMPLE_RATE,
-    durationMs: (samples.length / TARGET_SAMPLE_RATE) * 1000,
-    channels: 1,
+    durationMs: (frameCount / TARGET_SAMPLE_RATE) * 1000,
+    channels: 2,
+    channelData: [left, right],
   };
 }
 
 /**
  * Load an audio file. WAV files are decoded directly; every other format is
- * transcoded through ffmpeg to 16 kHz mono float32.
+ * transcoded through ffmpeg to 16 kHz float32 (mono by default). Pass
+ * `{ stereo: true }` to also receive the individual channels in `channelData`.
  */
-export async function loadAudioFile(path: string): Promise<DecodedAudio> {
+export async function loadAudioFile(
+  path: string,
+  options: LoadAudioOptions = {},
+): Promise<DecodedAudio> {
+  const stereo = options.stereo === true;
+
   if (extname(path).toLowerCase() === '.wav') {
     const buffer = await readFile(path);
     const decoded = decodeWav(buffer);
-    const samples = resampleLinear(decoded.samples, decoded.sampleRate, TARGET_SAMPLE_RATE);
-    return {
+    const samples = resampleSinc(decoded.samples, decoded.sampleRate, TARGET_SAMPLE_RATE);
+    const result: DecodedAudio = {
       samples,
       sampleRate: TARGET_SAMPLE_RATE,
       durationMs: (samples.length / TARGET_SAMPLE_RATE) * 1000,
       channels: decoded.channels,
     };
+    if (stereo && decoded.channelData !== undefined) {
+      result.channelData = decoded.channelData.map((channel) =>
+        resampleSinc(channel, decoded.sampleRate, TARGET_SAMPLE_RATE),
+      );
+    }
+    return result;
   }
 
   const ffmpeg = resolveFfmpeg();
@@ -275,5 +340,5 @@ export async function loadAudioFile(path: string): Promise<DecodedAudio> {
     );
   }
 
-  return decodeWithFfmpeg(path, ffmpeg);
+  return decodeWithFfmpeg(path, ffmpeg, stereo);
 }

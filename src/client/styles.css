@@ -455,6 +455,12 @@ a {
   color: var(--text-muted);
 }
 
+.field-hint {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
 .select {
   width: 100%;
   padding: 11px 12px;
@@ -818,6 +824,16 @@ video.media-player {
   line-height: 1.4;
 }
 
+.cue-pinyin {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+
+.pinyin-toggle {
+  margin-bottom: 16px;
+}
+
 /* --------------------------------------------------------------------------
    Export: style editor + live preview
    -------------------------------------------------------------------------- */
@@ -966,6 +982,120 @@ video.media-player {
   max-width: 100%;
   overflow-wrap: anywhere;
   text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   Subtitle editor
+   -------------------------------------------------------------------------- */
+
+.card-title-action {
+  margin-left: auto;
+}
+
+.btn-small {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
+.editor-hint {
+  margin-bottom: 16px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.editor-empty {
+  color: var(--text-faint);
+  font-size: 0.9rem;
+}
+
+.editor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.cue-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.cue-field-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.cue-field-index {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  font-weight: 700;
+  color: var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.cue-field-time {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cue-input {
+  width: 100%;
+  padding: 10px 12px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--select-bg);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.cue-input:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.cue-input:focus-visible {
+  border-color: var(--accent);
+}
+
+.cue-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.editor-status {
+  min-height: 1.3em;
+  margin-top: 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.editor-status.is-saved {
+  color: var(--success);
+}
+
+.editor-status.is-error {
+  color: var(--danger);
 }
 
 /* --------------------------------------------------------------------------

@@ -118,4 +118,69 @@ test.describe('free-subs end to end', () => {
     expect(buffer.length).toBeGreaterThan(10_000);
     expect(buffer.subarray(4, 8).toString('ascii')).toBe('ftyp');
   });
+
+  test('edits a cue and the exported SRT reflects the change', async ({ page }) => {
+    await transcribeFixture(page, FIXTURE_EN, 'en');
+    await page.getByTestId('cue-input').first().fill('Hello edited world.');
+    await page.getByTestId('save-cues').click();
+    await expect(page.getByTestId('editor-status')).toContainText('Guardado', { timeout: 30_000 });
+    await expect(page.getByTestId('transcript')).toContainText('Hello edited world.');
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByTestId('download-srt').click();
+    const download = await downloadPromise;
+    const srt = await readFile((await download.path()) as string, 'utf8');
+    expect(srt).toContain('Hello edited world.');
+  });
+
+  test('start over resets the flow', async ({ page }) => {
+    await transcribeFixture(page, FIXTURE_EN, 'en');
+    await page.getByTestId('start-over').click();
+    await expect(page.getByTestId('status-done')).toHaveCount(0);
+    await expect(page.getByTestId('transcribe-button')).toBeDisabled();
+  });
+
+  test('downloads the study JSON with cues and words', async ({ page }) => {
+    await transcribeFixture(page, FIXTURE_EN, 'en');
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByTestId('download-json').click();
+    const download = await downloadPromise;
+    const raw = await readFile((await download.path()) as string, 'utf8');
+    const doc = JSON.parse(raw) as {
+      version: number;
+      language: string;
+      cues: { lines: string[]; words: unknown[] }[];
+      translations: Record<string, unknown>;
+    };
+    expect(doc.version).toBe(1);
+    expect(doc.language).toBe('en');
+    expect(doc.cues.length).toBeGreaterThan(0);
+    expect(Array.isArray(doc.cues[0]?.words)).toBe(true);
+    expect(doc.translations).toEqual({});
+  });
+
+  test('serves a per-line audio clip', async ({ page, request }) => {
+    await transcribeFixture(page, FIXTURE_EN, 'en');
+    const href = await page.getByTestId('download-srt').getAttribute('href');
+    const jobId = /\/api\/jobs\/([^/]+)\//.exec(href ?? '')?.[1];
+    expect(jobId).toBeTruthy();
+    const response = await request.get(`/api/jobs/${jobId}/clip?startMs=500&endMs=1500`);
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-type']).toContain('audio/mp4');
+    const body = await response.body();
+    expect(body.length).toBeGreaterThan(1000);
+    expect(body.subarray(4, 8).toString('ascii')).toBe('ftyp');
+  });
+});
+
+test.describe('free-subs on a phone viewport', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('renders the main controls', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('dropzone')).toBeVisible();
+    await expect(page.getByTestId('transcribe-button')).toBeVisible();
+    await expect(page.getByTestId('theme-toggle')).toBeVisible();
+    await expect(page.getByTestId('file-input')).toHaveCount(1);
+  });
 });

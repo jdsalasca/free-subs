@@ -1,7 +1,7 @@
 import type { TranslationRecord } from '../../core/types';
 import { downloadUrl } from '../api';
 import { TRANSLATION_OPTIONS, type TranslationTarget } from '../constants';
-import { subtitlesToPlainText } from '../format';
+import { formatTimestamp, subtitlesToPlainText } from '../format';
 import { ProgressPanel } from './ProgressPanel';
 
 export type RunPhase = 'idle' | 'processing' | 'done' | 'error';
@@ -16,6 +16,8 @@ interface TranslatePanelProps {
   translation: TranslationRecord | null;
   onTargetChange: (target: TranslationTarget) => void;
   onTranslate: () => void;
+  /** Show the pinyin line under each translated cue that has one. */
+  showPinyin?: boolean;
 }
 
 export function TranslatePanel({
@@ -27,6 +29,7 @@ export function TranslatePanel({
   translation,
   onTargetChange,
   onTranslate,
+  showPinyin = false,
 }: TranslatePanelProps) {
   const targetLabel =
     TRANSLATION_OPTIONS.find((option) => option.value === target)?.label ?? target;
@@ -120,6 +123,33 @@ export function TranslatePanel({
               {translatedText}
             </div>
           </div>
+
+          {translation.cues && translation.cues.length > 0 ? (
+            <div className="panel-block">
+              <h3 className="block-title">Subtítulos traducidos</h3>
+              <ol className="cue-list" data-testid="translated-cue-list">
+                {translation.cues.map((cue) => (
+                  <li className="cue" key={`${cue.index}-${cue.startMs}`}>
+                    <span className="cue-time">
+                      {formatTimestamp(cue.startMs)} – {formatTimestamp(cue.endMs)}
+                    </span>
+                    <span className="cue-text">
+                      {cue.lines.map((line, lineIndex) => (
+                        <span className="cue-line" key={lineIndex}>
+                          {line}
+                        </span>
+                      ))}
+                      {showPinyin && cue.pinyin ? (
+                        <span className="cue-pinyin" data-testid="pinyin-line">
+                          {cue.pinyin}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
 
           <div className="result-actions">
             <a

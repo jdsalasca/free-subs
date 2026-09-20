@@ -23,6 +23,7 @@ import {
 } from './constants';
 import { Controls } from './components/Controls';
 import { Dropzone } from './components/Dropzone';
+import { EditorPanel } from './components/EditorPanel';
 import { ExportPanel } from './components/ExportPanel';
 import { ProgressPanel } from './components/ProgressPanel';
 import { ResultPanel } from './components/ResultPanel';
@@ -51,6 +52,7 @@ export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [language, setLanguage] = useState<LanguageCode>('auto');
   const [model, setModel] = useState<ModelId>('base');
+  const [musicMode, setMusicMode] = useState(false);
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [jobId, setJobId] = useState<string | null>(null);
@@ -72,8 +74,24 @@ export default function App() {
 
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
 
+  const [showPinyin, setShowPinyin] = useState(false);
+
   const busy = phase === 'processing';
   const ready = phase === 'done' && job?.result !== undefined;
+
+  // The pinyin toggle is only offered when a displayed cue has pinyin, either
+  // in the original result or in any stored translation.
+  const hasPinyin = useMemo(() => {
+    const originalHasPinyin = (job?.result?.cues ?? []).some((cue) =>
+      Boolean(cue.pinyin),
+    );
+    if (originalHasPinyin) {
+      return true;
+    }
+    return Object.values(job?.translations ?? {}).some((record) =>
+      (record.cues ?? []).some((cue) => Boolean(cue.pinyin)),
+    );
+  }, [job]);
 
   // Object URL for the uploaded media, shared by the player and the preview.
   useEffect(() => {
@@ -129,15 +147,19 @@ export default function App() {
     });
   }, [phase, job?.result?.language]);
 
-  const resetRun = useCallback(() => {
+  const resetTranslate = useCallback(() => {
     setTranslation(null);
     setTranslatePhase('idle');
     setTranslateError(null);
+  }, []);
+
+  const resetRun = useCallback(() => {
+    resetTranslate();
     setExportRecord(null);
     setExportPhase('idle');
     setExportError(null);
     setExportId(null);
-  }, []);
+  }, [resetTranslate]);
 
   const handleFile = useCallback(
     (next: File) => {
@@ -146,6 +168,7 @@ export default function App() {
       setJobId(null);
       setJob(null);
       setError(null);
+      setShowPinyin(false);
       resetRun();
     },
     [resetRun],
@@ -163,13 +186,13 @@ export default function App() {
     resetRun();
 
     try {
-      const { id } = await createJob(file, { language, model });
+      const { id } = await createJob(file, { language, model, vocals: musicMode });
       setJobId(id);
     } catch (err) {
       setError(errorMessage(err));
       setPhase('error');
     }
-  }, [file, language, model, resetRun]);
+  }, [file, language, model, musicMode, resetRun]);
 
   // Poll the transcription job every 800 ms.
   useEffect(() => {
@@ -366,12 +389,24 @@ export default function App() {
   }, []);
 
   const handleStartOver = useCallback(() => {
+    setFile(null);
     setPhase('idle');
     setJobId(null);
     setJob(null);
     setError(null);
+    setShowPinyin(false);
     resetRun();
   }, [resetRun]);
+
+  // Editing cues clears the server-side translations, so the translate
+  // section goes back to its initial state; the rest of the job is refreshed.
+  const handleCuesSaved = useCallback(
+    (updated: JobRecord) => {
+      setJob(updated);
+      resetTranslate();
+    },
+    [resetTranslate],
+  );
 
   const previewText = useMemo(() => {
     const cue = job?.result?.cues?.[0];
@@ -421,6 +456,17 @@ export default function App() {
         <section className="card">
           <h2 className="card-title">
             <span className="step">1</span> Elige un archivo
+            {file ? (
+              <button
+                data-testid="start-over"
+                type="button"
+                className="btn btn-ghost btn-small card-title-action"
+                onClick={handleStartOver}
+                disabled={busy}
+              >
+                Empezar de nuevo
+              </button>
+            ) : null}
           </h2>
           <Dropzone file={file} onFile={handleFile} disabled={busy} />
         </section>
@@ -432,10 +478,12 @@ export default function App() {
           <Controls
             language={language}
             model={model}
+            musicMode={musicMode}
             busy={busy}
             disabled={!file || busy}
             onLanguageChange={setLanguage}
             onModelChange={setModel}
+            onMusicModeChange={setMusicMode}
             onTranscribe={() => {
               void start();
             }}
@@ -502,12 +550,33 @@ export default function App() {
             <h2 className="card-title">
               <span className="step">✓</span> Resultado
             </h2>
+            {hasPinyin ? (
+              <label className="check-field pinyin-toggle">
+                <input
+                  data-testid="pinyin-toggle"
+                  type="checkbox"
+                  className="check"
+                  checked={showPinyin}
+                  onChange={(event) => setShowPinyin(event.target.checked)}
+                />
+                Mostrar pinyin
+              </label>
+            ) : null}
             <ResultPanel
               job={job}
               mediaUrl={mediaUrl}
               isVideo={file ? isVideoFile(file) : false}
+              showPinyin={showPinyin}
             />
           </section>
+        ) : null}
+
+        {ready && job && jobId ? (
+          <EditorPanel
+            jobId={jobId}
+            cues={job.result?.cues ?? []}
+            onSaved={handleCuesSaved}
+          />
         ) : null}
 
         {ready && job && jobId ? (
@@ -522,6 +591,7 @@ export default function App() {
             onTranslate={() => {
               void startTranslate();
             }}
+            showPinyin={showPinyin}
           />
         ) : null}
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type SyntheticEvent } from 'react';
 import type { JobRecord } from '../../core/types';
-import { downloadUrl } from '../api';
+import { downloadUrl, studyDownloadUrl } from '../api';
 import { formatDuration, formatTimestamp } from '../format';
 
 async function copyText(text: string): Promise<boolean> {
@@ -35,9 +35,11 @@ interface ResultPanelProps {
   /** Object URL for the uploaded media, shared with the export preview. */
   mediaUrl: string | null;
   isVideo: boolean;
+  /** Show the pinyin line under each cue that has one. */
+  showPinyin?: boolean;
 }
 
-export function ResultPanel({ job, mediaUrl, isVideo }: ResultPanelProps) {
+export function ResultPanel({ job, mediaUrl, isVideo, showPinyin = false }: ResultPanelProps) {
   const result = job.result;
   const cues = useMemo(() => result?.cues ?? [], [result]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -145,6 +147,14 @@ export function ResultPanel({ job, mediaUrl, isVideo }: ResultPanelProps) {
         >
           Descargar ASS
         </a>
+        <a
+          data-testid="download-json"
+          className="btn btn-download"
+          href={studyDownloadUrl(job.id)}
+          download
+        >
+          Descargar JSON (estudio)
+        </a>
         <button
           data-testid="copy-srt"
           type="button"
@@ -187,6 +197,11 @@ export function ResultPanel({ job, mediaUrl, isVideo }: ResultPanelProps) {
                     {line}
                   </span>
                 ))}
+                {showPinyin && cue.pinyin ? (
+                  <span className="cue-pinyin" data-testid="pinyin-line">
+                    {cue.pinyin}
+                  </span>
+                ) : null}
               </span>
             </li>
           ))}

@@ -64,6 +64,90 @@ export function buildBurnInArgs(
   ];
 }
 
+/** Build the ffmpeg argument list for an audio clip extraction (study cards). */
+export function buildClipArgs(
+  inputPath: string,
+  startMs: number,
+  endMs: number,
+  outputPath: string,
+): string[] {
+  const start = (startMs / 1000).toFixed(3);
+  const duration = ((endMs - startMs) / 1000).toFixed(3);
+  return [
+    '-y',
+    '-hide_banner',
+    '-ss',
+    start,
+    '-i',
+    inputPath,
+    '-t',
+    duration,
+    '-vn',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '128k',
+    '-movflags',
+    '+faststart',
+    outputPath,
+  ];
+}
+
+/**
+ * Extract a short audio clip (m4a) from a media file. Used by the study-card
+ * endpoint so learners can replay a single line.
+ */
+export async function exportClip(
+  inputPath: string,
+  startMs: number,
+  endMs: number,
+  outputPath: string,
+): Promise<void> {
+  const ffmpeg = resolveFfmpeg();
+  if (ffmpeg === null) {
+    throw new Error('ffmpeg was not found. Install it or set FREE_SUBS_FFMPEG to create audio clips.');
+  }
+
+  const args = buildClipArgs(resolve(inputPath), startMs, endMs, resolve(outputPath));
+  await new Promise<void>((resolvePromise, reject) => {
+    const child = spawn(ffmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const stderrLines: string[] = [];
+    let pending = '';
+
+    const consume = (line: string): void => {
+      if (line === '') {
+        return;
+      }
+      stderrLines.push(line);
+      if (stderrLines.length > 20) {
+        stderrLines.shift();
+      }
+    };
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      pending += chunk.toString();
+      const parts = pending.split(/\r?\n/);
+      pending = parts.pop() ?? '';
+      for (const line of parts) {
+        consume(line);
+      }
+    });
+
+    child.on('error', (error) => {
+      reject(new Error(`Failed to run ffmpeg: ${error.message}`));
+    });
+    child.on('close', (code) => {
+      consume(pending.trim());
+      if (code === 0) {
+        resolvePromise();
+        return;
+      }
+      const detail = stderrLines.slice(-5).join('\n') || 'no output';
+      reject(new Error(`ffmpeg clip failed (exit ${code ?? 'unknown'}): ${detail}`));
+    });
+  });
+}
+
 const TIME_RE = /time=(\d+):(\d{2}):(\d{2})(?:\.(\d+))?/;
 
 /** Parse a `time=HH:MM:SS.cc` ffmpeg progress token into milliseconds. */

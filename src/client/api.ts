@@ -11,6 +11,8 @@ import type { TranslationTarget } from './constants';
 export interface CreateJobOptions {
   language: LanguageCode;
   model: ModelId;
+  /** Music mode: asks the server to isolate the centre vocal channel. */
+  vocals?: boolean;
 }
 
 /** Shape of `GET /api/models`; `fonts`/`defaultStyle` may be absent on old servers. */
@@ -36,6 +38,10 @@ export async function createJob(
     model: opts.model,
     filename: file.name,
   });
+
+  if (opts.vocals) {
+    params.set('vocals', 'true');
+  }
 
   const response = await fetch(`/api/jobs?${params.toString()}`, {
     method: 'POST',
@@ -75,6 +81,25 @@ export async function getModels(): Promise<ModelsResponse> {
   }
 
   return (await response.json()) as ModelsResponse;
+}
+
+/**
+ * Replaces the cue texts of a finished job (order-based) and returns the
+ * updated `JobRecord`. The server re-wraps the lines, regenerates SRT/VTT and
+ * clears stale translations.
+ */
+export async function saveCues(id: string, texts: string[]): Promise<JobRecord> {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/cues`, {
+    method: 'PATCH',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ cues: texts.map((text) => ({ text })) }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return (await response.json()) as JobRecord;
 }
 
 /** Kicks off a translation of an already-finished job. */
@@ -152,6 +177,11 @@ export function downloadUrl(
   }
 
   return `/api/jobs/${encodeURIComponent(id)}/download?${params.toString()}`;
+}
+
+/** Builds the download URL for the JSON study document of a finished job. */
+export function studyDownloadUrl(id: string): string {
+  return `/api/jobs/${encodeURIComponent(id)}/download?format=json`;
 }
 
 /** Builds the download URL for a finished burned-in video export. */

@@ -37,6 +37,8 @@ export interface SubtitleCue {
   lines: string[];
   /** Word timings restricted to this cue, for karaoke output. */
   words?: WordTiming[];
+  /** Mandarin pinyin for the cue text (tone marks), when the language is Chinese. */
+  pinyin?: string;
 }
 
 /**

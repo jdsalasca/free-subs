@@ -4,12 +4,15 @@ import { LANGUAGE_OPTIONS, MODEL_OPTIONS } from '../constants';
 interface ControlsProps {
   language: LanguageCode;
   model: ModelId;
+  /** Music mode: isolate the centre vocal channel for songs. */
+  musicMode: boolean;
   /** Disables the submit button (no file selected or a job is running). */
   disabled: boolean;
   /** A transcription is currently in flight. */
   busy: boolean;
   onLanguageChange: (value: LanguageCode) => void;
   onModelChange: (value: ModelId) => void;
+  onMusicModeChange: (value: boolean) => void;
   onTranscribe: () => void;
 }
 
@@ -23,10 +26,12 @@ function labelFor<T extends string>(
 export function Controls({
   language,
   model,
+  musicMode,
   disabled,
   busy,
   onLanguageChange,
   onModelChange,
+  onMusicModeChange,
   onTranscribe,
 }: ControlsProps) {
   const currentLanguage = labelFor(LANGUAGE_OPTIONS, language);
@@ -76,6 +81,24 @@ export function Controls({
               ))}
             </select>
           </label>
+
+          <div className="field">
+            <label className="check-field" htmlFor="music-mode">
+              <input
+                id="music-mode"
+                data-testid="music-mode"
+                className="check"
+                type="checkbox"
+                checked={musicMode}
+                onChange={(event) => onMusicModeChange(event.target.checked)}
+                disabled={busy}
+              />
+              <span>Modo música — aislar voz</span>
+            </label>
+            <span className="field-hint">
+              Mejora canciones y audio con música de fondo
+            </span>
+          </div>
         </div>
       </details>
 

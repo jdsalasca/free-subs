@@ -21,11 +21,14 @@ import {
 import { loadAudioFile } from './audio';
 import { estimateSnrDb, spectralDenoise } from './denoise';
 import { TransformersWhisperEngine } from './engine-transformers';
+import { highPass } from './filters';
 import { detectLanguageFromText } from './language';
 import { normalizeLoudness } from './loudness';
+import { annotateCuesWithPinyin } from './pinyin';
 import { normalizeSegments } from './postprocess';
 import type { AsrEngine } from './asr';
 import { detectSpeechRegions, trimToSpeech } from './vad';
+import { isolateCenterChannel } from './vocals';
 import { normalizeChineseText } from './zh';
 
 export interface TranscribeOptions {
@@ -33,11 +36,16 @@ export interface TranscribeOptions {
   model?: ModelId;
   style?: SubtitleStyle;
   engine?: AsrEngine;
+  /** Isolate the centre channel (vocals) and high-pass the audio for music. */
+  isolateVocals?: boolean;
   onProgress?: (progress: JobProgress) => void;
 }
 
 /** SNR below which denoising is attempted (dB). */
 const DENOISE_SNR_THRESHOLD_DB = 10;
+
+/** Rumble/bass cutoff applied to the vocal signal before ASR (Hz). */
+const VOCAL_HIGHPASS_HZ = 80;
 
 function countWords(segments: TranscriptSegment[], language: string): number {
   let words = 0;
@@ -105,11 +113,28 @@ export async function transcribeFile(
   };
 
   report('decoding', 5);
-  const audio = await loadAudioFile(path);
+  const audio = await loadAudioFile(
+    path,
+    opts.isolateVocals === true ? { stereo: true } : undefined,
+  );
   report('decoding', 15);
 
+  // In music mode the vocal-isolated (or high-passed mono) signal replaces the
+  // raw mixdown for every downstream stage: loudness, VAD, SNR and ASR.
+  let source = audio.samples;
+  if (opts.isolateVocals === true) {
+    const channels = audio.channelData;
+    if (channels !== undefined && channels.length >= 2) {
+      const left = highPass(channels[0]!, audio.sampleRate, VOCAL_HIGHPASS_HZ);
+      const right = highPass(channels[1]!, audio.sampleRate, VOCAL_HIGHPASS_HZ);
+      source = isolateCenterChannel(left, right, audio.sampleRate);
+    } else {
+      source = highPass(audio.samples, audio.sampleRate, VOCAL_HIGHPASS_HZ);
+    }
+  }
+
   report('analyzing', 15);
-  const normalized = normalizeLoudness(audio.samples, audio.sampleRate);
+  const normalized = normalizeLoudness(source, audio.sampleRate);
   let regions = detectSpeechRegions(normalized, audio.sampleRate);
 
   const snrDb = estimateSnrDb(normalized, regions, audio.sampleRate);
@@ -154,7 +179,10 @@ export async function transcribeFile(
 
   const style = opts.style ?? styleForLanguage(language);
   report('formatting', 85);
-  const cues = segmentsToCues(segments, style, language);
+  let cues = segmentsToCues(segments, style, language);
+  if (language.startsWith('zh')) {
+    cues = annotateCuesWithPinyin(cues);
+  }
   const srt = serializeSrt(cues);
   const vtt = serializeVtt(cues);
   report('formatting', 95);

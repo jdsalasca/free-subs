@@ -14,10 +14,12 @@ import { fileURLToPath } from 'node:url';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import {
   DEFAULT_EXPORT_STYLE,
+  computeCps,
   serializeAss,
   serializeSrt,
   serializeVtt,
   styleForLanguage,
+  tokenize,
   wrapLines,
   type ExportRecord,
   type LanguageCode,
@@ -28,15 +30,19 @@ import {
   type TranslationRecord,
 } from '../core';
 import { transcribeFile, type TranscribeOptions } from '../pipeline/transcribe';
-import { OpusMtTranslator, normalizeLanguage, type Translator } from '../pipeline/translator';
+import { annotateCuesWithPinyin } from '../pipeline/pinyin';
+import { buildStudyDocument, serializeStudy } from '../pipeline/study';
+import { OpusMtTranslator, normalizeLanguage, translateCueTexts, type Translator } from '../pipeline/translator';
 import { resolveFfmpeg } from '../pipeline/audio';
-import { exportVideo, ffmpegSupportsAss, probeDurationMs } from './exporter';
+import { exportClip, exportVideo, ffmpegSupportsAss, probeDurationMs } from './exporter';
 import type { JobStore } from './jobs';
 
 const MODELS: ModelId[] = ['tiny', 'base', 'small'];
 const LANGUAGES: LanguageCode[] = ['auto', 'es', 'en', 'zh'];
 const TRANSLATION_TARGETS = ['es', 'en', 'zh'] as const;
 const FORMATS: SubtitleFormat[] = ['srt', 'vtt', 'ass'];
+const DOWNLOAD_FORMATS = ['srt', 'vtt', 'ass', 'json'] as const;
+type DownloadFormat = (typeof DOWNLOAD_FORMATS)[number];
 const FONTS = [
   'Arial',
   'Segoe UI',
@@ -64,6 +70,10 @@ function isLanguage(value: string): value is LanguageCode {
 
 function isFormat(value: string): value is SubtitleFormat {
   return (FORMATS as string[]).includes(value);
+}
+
+function isDownloadFormat(value: string): value is DownloadFormat {
+  return (DOWNLOAD_FORMATS as readonly string[]).includes(value);
 }
 
 function isTranslationTarget(value: string): value is TranslationTarget {
@@ -126,7 +136,7 @@ function mergeStyle(input: unknown): SubtitleExportStyle {
 /** Rebuild cues with translated text, keeping the original timings. */
 function buildTranslatedCues(cues: SubtitleCue[], texts: string[], lang: string): SubtitleCue[] {
   const style = styleForLanguage(lang);
-  return cues.map((cue, index) => {
+  const translated = cues.map((cue, index) => {
     const text = (texts[index] ?? cue.lines.join(' ')).trim();
     return {
       index: index + 1,
@@ -135,6 +145,7 @@ function buildTranslatedCues(cues: SubtitleCue[], texts: string[], lang: string)
       lines: wrapLines(text, style, lang),
     };
   });
+  return lang.toLowerCase().startsWith('zh') ? annotateCuesWithPinyin(translated) : translated;
 }
 
 /**
@@ -172,7 +183,7 @@ export function createApp(store: JobStore, deps?: AppDeps): Express {
   const app = express();
 
   app.get('/api/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok', name: 'free-subs', version: '0.2.0' });
+    res.json({ status: 'ok', name: 'free-subs', version: '0.3.0' });
   });
 
   app.get('/api/models', (_req: Request, res: Response) => {
@@ -189,6 +200,7 @@ export function createApp(store: JobStore, deps?: AppDeps): Express {
     const filename = basename(queryValue(req.query.filename) ?? 'audio');
     const language = queryValue(req.query.language) ?? 'auto';
     const model = queryValue(req.query.model) ?? 'base';
+    const isolateVocals = queryValue(req.query.vocals) === 'true';
 
     if (!isLanguage(language)) {
       res.status(400).json({ error: `Invalid language "${language}". Use one of: ${LANGUAGES.join(', ')}.` });
@@ -215,6 +227,7 @@ export function createApp(store: JobStore, deps?: AppDeps): Express {
     const options: TranscribeOptions = {
       language,
       model,
+      isolateVocals,
       onProgress: (progress) => {
         store.update(job.id, { progress });
       },
@@ -250,6 +263,72 @@ export function createApp(store: JobStore, deps?: AppDeps): Express {
       return;
     }
     res.json(job);
+  });
+
+  /**
+   * Edit cue texts (order-based) and regenerate the subtitle payloads.
+   * Translations become stale, so they are cleared; rendered exports are kept.
+   */
+  app.patch('/api/jobs/:id/cues', express.json({ limit: '2mb' }), (req: Request, res: Response) => {
+    const job = store.get(queryValue(req.params.id) ?? '');
+    if (job === undefined) {
+      res.status(404).json({ error: 'Job not found.' });
+      return;
+    }
+    if (job.status !== 'done' || job.result === undefined) {
+      res.status(409).json({ error: 'Transcription is not ready yet.' });
+      return;
+    }
+
+    const incoming = (req.body as { cues?: unknown } | undefined)?.cues;
+    const cues = job.result.cues;
+    if (!Array.isArray(incoming) || incoming.length !== cues.length) {
+      res.status(400).json({ error: `Expected ${cues.length} cues.` });
+      return;
+    }
+
+    const language = job.result.language;
+    const style = styleForLanguage(language);
+    const edited: SubtitleCue[] = [];
+    for (let i = 0; i < incoming.length; i += 1) {
+      const entry = incoming[i] as { text?: unknown } | null | undefined;
+      const text = typeof entry?.text === 'string' ? entry.text.replace(/\s+/g, ' ').trim() : '';
+      if (text === '' || text.length > 500) {
+        res.status(400).json({ error: `Cue ${i + 1} must be between 1 and 500 characters.` });
+        return;
+      }
+      const original = cues[i];
+      if (original === undefined) {
+        res.status(400).json({ error: `Cue ${i + 1} is missing.` });
+        return;
+      }
+      edited.push({
+        index: i + 1,
+        startMs: original.startMs,
+        endMs: original.endMs,
+        lines: wrapLines(text, style, language),
+      });
+    }
+
+    const cpsValues = edited.map((cue) => computeCps(cue));
+    const wordCount = edited.reduce((total, cue) => total + tokenize(cue.lines.join(' '), language).length, 0);
+    const maxCps = cpsValues.reduce((max, value) => Math.max(max, value), 0);
+    const avgCps = cpsValues.length === 0 ? 0 : cpsValues.reduce((sum, value) => sum + value, 0) / cpsValues.length;
+    const result = {
+      ...job.result,
+      cues: edited,
+      srt: serializeSrt(edited),
+      vtt: serializeVtt(edited),
+      stats: {
+        cueCount: edited.length,
+        wordCount,
+        avgCps: Number(avgCps.toFixed(1)),
+        maxCps: Number(maxCps.toFixed(1)),
+        durationMs: job.result.durationMs,
+      },
+    };
+    const updated = store.update(job.id, { result, translations: {} });
+    res.json(updated);
   });
 
   app.post('/api/jobs/:id/translate', express.json({ limit: '1mb' }), (req: Request, res: Response) => {
@@ -309,7 +388,7 @@ export function createApp(store: JobStore, deps?: AppDeps): Express {
     void (async () => {
       try {
         const texts = result.cues.map((cue) => cue.lines.join(' '));
-        const translated = await translator.translate(texts, {
+        const translated = await translateCueTexts(translator, texts, {
           from: source,
           to: requested,
           onProgress: (percent) => {
@@ -443,8 +522,8 @@ export function createApp(store: JobStore, deps?: AppDeps): Express {
 
   app.get('/api/jobs/:id/download', (req: Request, res: Response) => {
     const format = queryValue(req.query.format) ?? 'srt';
-    if (!isFormat(format)) {
-      res.status(400).json({ error: `Invalid format "${format}". Use srt, vtt or ass.` });
+    if (!isDownloadFormat(format)) {
+      res.status(400).json({ error: `Invalid format "${format}". Use srt, vtt, ass or json.` });
       return;
     }
 
@@ -455,6 +534,26 @@ export function createApp(store: JobStore, deps?: AppDeps): Express {
     }
     if (job.status !== 'done' || job.result === undefined) {
       res.status(404).json({ error: 'Subtitles are not ready yet.' });
+      return;
+    }
+
+    if (format === 'json') {
+      const translations: Record<string, SubtitleCue[]> = {};
+      for (const [code, record] of Object.entries(job.translations ?? {})) {
+        if (record.status === 'done' && record.cues !== undefined) {
+          translations[code] = record.cues;
+        }
+      }
+      const document = buildStudyDocument({
+        language: job.result.language,
+        durationMs: job.result.durationMs,
+        cues: job.result.cues,
+        translations,
+      });
+      const jsonBase = parse(job.filename).name || 'subtitles';
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${jsonBase}.study.json"`);
+      res.send(serializeStudy(document));
       return;
     }
 
@@ -492,6 +591,66 @@ export function createApp(store: JobStore, deps?: AppDeps): Express {
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${base}${suffix}.${format}"`);
     res.send(payload);
+  });
+
+  /** Extract a short audio clip for study cards (line-by-line playback). */
+  app.get('/api/jobs/:id/clip', (req: Request, res: Response) => {
+    const job = store.get(queryValue(req.params.id) ?? '');
+    if (job === undefined) {
+      res.status(404).json({ error: 'Job not found.' });
+      return;
+    }
+    if (job.status !== 'done' || job.result === undefined) {
+      res.status(409).json({ error: 'Transcription is not ready yet.' });
+      return;
+    }
+    const mediaPath = job.mediaPath;
+    if (mediaPath === undefined || !existsSync(mediaPath)) {
+      res.status(400).json({ error: 'Uploaded media is no longer available.' });
+      return;
+    }
+
+    const startMs = Number(queryValue(req.query.startMs));
+    const endMs = Number(queryValue(req.query.endMs));
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs < 0 || endMs <= startMs) {
+      res.status(400).json({ error: 'Invalid clip range. Use startMs and endMs in milliseconds.' });
+      return;
+    }
+    if (endMs - startMs > 120_000) {
+      res.status(400).json({ error: 'Clips are limited to 120 seconds.' });
+      return;
+    }
+    if (endMs > job.result.durationMs + 2_000) {
+      res.status(400).json({ error: 'Clip range exceeds the media duration.' });
+      return;
+    }
+    if (resolveFfmpeg() === null) {
+      res.status(500).json({ error: 'ffmpeg is required to create audio clips.' });
+      return;
+    }
+
+    const tempDir = join(tmpdir(), 'free-subs');
+    const outputPath = join(tempDir, `${job.id}-clip-${Math.round(startMs)}-${Math.round(endMs)}.m4a`);
+    const clipBase = parse(job.filename).name || 'audio';
+    void (async () => {
+      try {
+        await mkdir(tempDir, { recursive: true });
+        await exportClip(mediaPath, startMs, endMs, outputPath);
+        res.setHeader('Content-Type', 'audio/mp4');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${clipBase}-${Math.round(startMs)}-${Math.round(endMs)}.m4a"`,
+        );
+        res.sendFile(outputPath, (error) => {
+          void rm(outputPath, { force: true }).catch(() => undefined);
+          if (error && !res.headersSent) {
+            res.status(500).json({ error: errorMessage(error) });
+          }
+        });
+      } catch (error) {
+        res.status(500).json({ error: errorMessage(error) });
+      }
+    })();
   });
 
   const clientDir = resolveClientDir();

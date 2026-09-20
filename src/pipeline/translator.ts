@@ -127,6 +127,231 @@ export function routeModelKeys(from: string, to: string): string[] {
   return keys;
 }
 
+/**
+ * Context-aware cue translation.
+ *
+ * Translating cue-by-cue loses the surrounding context (a common complaint for
+ * educational content). Instead, consecutive cues are grouped into short
+ * blocks, each block is joined and translated as one string, and the result is
+ * split back across the original cues so the timings never move.
+ */
+
+/** Collapse whitespace and count every remaining code point as one unit. */
+function visibleLength(text: string): number {
+  return text.replace(/\s+/gu, '').length;
+}
+
+/**
+ * Group consecutive cue indices into blocks bounded by `maxCues` cues and
+ * `maxChars` visible characters. The returned groups are never empty and are
+ * always made of consecutive indices that partition `[0, cueTexts.length)`.
+ */
+export function groupCueBlocks(
+  cueTexts: string[],
+  options: { maxCues?: number; maxChars?: number } = {},
+): number[][] {
+  const maxCues = options.maxCues ?? 6;
+  const maxChars = options.maxChars ?? 400;
+  const groups: number[][] = [];
+  let current: number[] = [];
+  let currentChars = 0;
+
+  for (let index = 0; index < cueTexts.length; index += 1) {
+    const length = visibleLength(cueTexts[index] ?? '');
+    const wouldExceedCues = current.length >= maxCues;
+    const wouldExceedChars = current.length > 0 && currentChars + length > maxChars;
+
+    if (current.length > 0 && (wouldExceedCues || wouldExceedChars)) {
+      groups.push(current);
+      current = [];
+      currentChars = 0;
+    }
+
+    current.push(index);
+    currentChars += length;
+  }
+
+  if (current.length > 0) {
+    groups.push(current);
+  }
+
+  return groups;
+}
+
+/**
+ * Nearest whitespace run to `ideal` that fits inside `[minStart, maxEnd]`.
+ * Returning `null` means the caller should cut at an arbitrary character
+ * boundary (the normal case for CJK, which has no spaces).
+ */
+function findWhitespaceCut(
+  text: string,
+  ideal: number,
+  minStart: number,
+  maxEnd: number,
+): { start: number; end: number } | null {
+  let best: { start: number; end: number } | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  const pattern = /\s+/gu;
+  let match = pattern.exec(text);
+
+  while (match !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (end > maxEnd) {
+      break;
+    }
+    if (start >= minStart) {
+      const distance = Math.abs(start - ideal);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = { start, end };
+      }
+    }
+    match = pattern.exec(text);
+  }
+
+  return best;
+}
+
+/**
+ * Split `translated` into `parts.length` pieces proportional to each part's
+ * visible length. Latin text is split on whitespace when possible; CJK text
+ * (no whitespace) may be split at any character boundary. Every returned piece
+ * is non-empty and the total content is preserved ignoring whitespace.
+ */
+export function splitTranslatedText(translated: string, parts: string[]): string[] {
+  if (parts.length === 0) {
+    return [];
+  }
+  if (parts.length === 1) {
+    return [translated.trim()];
+  }
+
+  const text = translated.trim();
+  const count = parts.length;
+  if (text === '') {
+    return parts.map(() => '');
+  }
+
+  const weights = parts.map((part) => visibleLength(part));
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+  const effective = totalWeight > 0 ? weights : parts.map(() => 1);
+  const effectiveTotal = totalWeight > 0 ? totalWeight : count;
+
+  const pieces: string[] = [];
+  let previous = 0;
+  let cumulative = 0;
+
+  for (let index = 0; index < count; index += 1) {
+    if (index === count - 1) {
+      pieces.push(text.slice(previous).trim());
+      break;
+    }
+
+    cumulative += effective[index] ?? 0;
+    const ideal = Math.round((text.length * cumulative) / effectiveTotal);
+    const remainingAfter = count - index - 1;
+    // Leave at least one character for this piece and for each later piece.
+    const lower = previous + 1;
+    const upper = Math.max(lower, text.length - remainingAfter);
+    const whitespace = findWhitespaceCut(text, ideal, lower, upper);
+
+    let cutStart: number;
+    let cutEnd: number;
+    if (whitespace !== null && text.slice(previous, whitespace.start).trim() !== '') {
+      cutStart = whitespace.start;
+      cutEnd = whitespace.end;
+    } else {
+      const raw = Math.min(Math.max(ideal, lower), upper);
+      cutStart = raw;
+      cutEnd = raw;
+    }
+
+    let piece = text.slice(previous, cutStart).trim();
+    if (piece === '') {
+      // Fall back to proportional slicing, forcing a non-empty piece.
+      const forced = Math.min(Math.max(ideal, lower), upper);
+      cutStart = forced;
+      cutEnd = forced;
+      piece = text.slice(previous, cutStart).trim();
+    }
+
+    pieces.push(piece);
+    previous = cutEnd;
+  }
+
+  return pieces;
+}
+
+/**
+ * Fallback used when a whole-block translation fails: translate the cues of
+ * that block as separate inputs (still one batched call).
+ */
+async function translateIndividually(
+  translator: Translator,
+  texts: string[],
+  options: TranslatorOptions,
+): Promise<string[]> {
+  try {
+    const translated = await translator.translate(texts.slice(), options);
+    return texts.map((text, index) => translated[index] ?? text);
+  } catch {
+    return texts.slice();
+  }
+}
+
+/**
+ * Translate consecutive cues in context: group them, join each block with a
+ * space, translate the blocks, then split the translation back proportionally.
+ * If a block translation throws, that block's cues are translated individually.
+ * The result always has the same length and order as `cueTexts`.
+ */
+export async function translateCueTexts(
+  translator: Translator,
+  cueTexts: string[],
+  options: TranslatorOptions,
+): Promise<string[]> {
+  if (cueTexts.length === 0) {
+    return [];
+  }
+
+  const groups = groupCueBlocks(cueTexts);
+  const results: string[] = [];
+  let completedBlocks = 0;
+
+  for (const group of groups) {
+    const blockParts = group.map((index) => cueTexts[index] ?? '');
+    const blockText = blockParts.join(' ');
+    let pieces: string[];
+
+    try {
+      const translated = await translator.translate([blockText], {
+        ...options,
+        onProgress: (percent) => {
+          if (options.onProgress === undefined) {
+            return;
+          }
+          const inner = Math.min(Math.max(percent, 0), 100);
+          const overall = ((completedBlocks + inner / 100) / groups.length) * 100;
+          options.onProgress(Math.round(overall));
+        },
+      });
+      pieces = splitTranslatedText(translated[0] ?? blockText, blockParts);
+    } catch {
+      pieces = await translateIndividually(translator, blockParts, options);
+    }
+
+    for (let index = 0; index < group.length; index += 1) {
+      results.push(pieces[index] ?? blockParts[index] ?? '');
+    }
+
+    completedBlocks += 1;
+    options.onProgress?.(Math.round((completedBlocks / groups.length) * 100));
+  }
+
+  return results;
+}
+
 type TransformersModule = typeof import('@huggingface/transformers');
 type Text2TextPipeline = import('@huggingface/transformers').Text2TextGenerationPipeline;
 
