@@ -20,6 +20,7 @@ function New-Fixture {
         Write-Warning "No voice matching '$VoicePattern'; using default voice."
     }
     $path = Join-Path $outDir $File
+    $synth.Rate = -1  # slower speech is much easier for small ASR models
     $synth.SetOutputToWaveFile($path)
     $synth.Speak($Text)
     $synth.SetOutputToNull()

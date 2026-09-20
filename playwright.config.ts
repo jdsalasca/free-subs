@@ -19,7 +19,6 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       PORT: '8787',
-      FREE_SUBS_MODEL: 'tiny',
       FREE_SUBS_CACHE_DIR: '.cache/models',
     },
   },
