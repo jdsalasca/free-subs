@@ -93,6 +93,67 @@ export interface TranscriptionResult {
   stats: SubtitleStats;
 }
 
+/** Available subtitle export formats. SRT is the most widely supported. */
+export type SubtitleFormat = 'srt' | 'vtt' | 'ass';
+
+/** Visual style used when burning subtitles into a video (ASS/libass). */
+export interface SubtitleExportStyle {
+  fontFamily: string;
+  fontSize: number;
+  bold: boolean;
+  /** Hex colors, e.g. "#ffffff". */
+  primaryColor: string;
+  outlineColor: string;
+  outlineWidth: number;
+  shadow: number;
+  position: 'bottom' | 'middle' | 'top';
+  /** Vertical margin from the chosen edge, in pixels (relative to a 1080p canvas). */
+  marginV: number;
+  background: boolean;
+  backgroundColor: string;
+  /** 0..1 */
+  backgroundOpacity: number;
+}
+
+export const DEFAULT_EXPORT_STYLE: SubtitleExportStyle = {
+  fontFamily: 'Arial',
+  fontSize: 48,
+  bold: true,
+  primaryColor: '#ffffff',
+  outlineColor: '#000000',
+  outlineWidth: 2,
+  shadow: 1,
+  position: 'bottom',
+  marginV: 60,
+  background: false,
+  backgroundColor: '#000000',
+  backgroundOpacity: 0.6,
+};
+
+export interface TranslationRecord {
+  language: string;
+  status: 'processing' | 'done' | 'error';
+  progress: JobProgress;
+  /** Translated cues, keeping the original cue timings. */
+  cues?: SubtitleCue[];
+  /** Translated subtitles, keeping the original cue timings. */
+  srt?: string;
+  vtt?: string;
+  text?: string;
+  error?: string;
+}
+
+export interface ExportRecord {
+  id: string;
+  status: 'queued' | 'processing' | 'done' | 'error';
+  progress: JobProgress;
+  style: SubtitleExportStyle;
+  filename: string;
+  /** Absolute path of the rendered video once finished. */
+  outputPath?: string;
+  error?: string;
+}
+
 export interface JobProgress {
   stage:
     | 'queued'
@@ -100,6 +161,8 @@ export interface JobProgress {
     | 'analyzing'
     | 'loading-model'
     | 'transcribing'
+    | 'translating'
+    | 'exporting'
     | 'formatting'
     | 'done'
     | 'error';
@@ -114,6 +177,10 @@ export interface JobRecord {
   status: 'queued' | 'processing' | 'done' | 'error';
   progress: JobProgress;
   createdAt: string;
+  /** Path of the uploaded media on disk (kept for video export). */
+  mediaPath?: string;
   result?: TranscriptionResult;
+  translations?: Record<string, TranslationRecord>;
+  exports?: Record<string, ExportRecord>;
   error?: string;
 }

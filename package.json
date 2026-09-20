@@ -1,6 +1,6 @@
 {
   "name": "free-subs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Free, fast, local subtitles in Spanish, English and Mandarin. High-quality SRT/VTT generated entirely on your machine.",
   "type": "module",
   "license": "MIT",
@@ -24,6 +24,7 @@
     "@huggingface/transformers": "^4.3.0",
     "commander": "^15.0.0",
     "express": "^4.22.3",
+    "opencc-js": "^1.4.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

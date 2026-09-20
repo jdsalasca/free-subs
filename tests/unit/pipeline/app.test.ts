@@ -96,17 +96,23 @@ describe('createApp', () => {
     expect(await response.json()).toEqual({
       status: 'ok',
       name: 'free-subs',
-      version: '0.1.0',
+      version: '0.2.0',
     });
   });
 
-  it('lists the available models and languages', async () => {
+  it('lists the available models, languages, fonts and default style', async () => {
     const response = await fetch(`${base}/api/models`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      models: ['tiny', 'base', 'small'],
-      languages: ['auto', 'es', 'en', 'zh'],
-    });
+    const body = (await response.json()) as {
+      models: string[];
+      languages: string[];
+      fonts: string[];
+      defaultStyle: { fontFamily: string; fontSize: number };
+    };
+    expect(body.models).toEqual(['tiny', 'base', 'small']);
+    expect(body.languages).toEqual(['auto', 'es', 'en', 'zh']);
+    expect(body.fonts.length).toBeGreaterThan(0);
+    expect(body.defaultStyle.fontSize).toBeGreaterThan(0);
   });
 
   it('rejects an invalid model', async () => {

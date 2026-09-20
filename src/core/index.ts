@@ -10,3 +10,4 @@ export * from './text';
 export * from './wrap';
 export * from './segment';
 export * from './format';
+export * from './ass';

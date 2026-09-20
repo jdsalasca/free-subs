@@ -130,11 +130,21 @@ export class TransformersWhisperEngine implements AsrEngine {
 
     opts.onProgress?.(30, 'transcribing');
     const language = opts.language !== undefined && opts.language !== 'auto' ? opts.language : undefined;
+    // `chunk_length_s: 29` avoids the transformers.js timestamp bug (#1357)
+    // where 30 s chunks break word timestamps. Greedy decoding (no beam
+    // search) plus the guards below is the lowest-hallucination configuration.
     const common = {
       language,
       task: 'transcribe',
-      chunk_length_s: 30,
+      chunk_length_s: 29,
       stride_length_s: 5,
+    };
+    const decoding = {
+      condition_on_previous_text: false,
+      no_speech_threshold: 0.4,
+      // Transformers.js accepts a temperature fallback list at runtime; its
+      // current typings only advertise a single number, hence the cast.
+      temperature: [0, 0.2, 0.4, 0.6, 0.8, 1.0] as unknown as number,
     };
 
     let output: import('@huggingface/transformers').AutomaticSpeechRecognitionOutput;
@@ -142,12 +152,17 @@ export class TransformersWhisperEngine implements AsrEngine {
     let wordMode = true;
 
     try {
-      output = await pipeline(audio, { ...common, return_timestamps: 'word' });
+      output = await pipeline(audio, { ...common, return_timestamps: 'word', ...decoding });
       chunks = output.chunks ?? [];
     } catch {
-      wordMode = false;
-      output = await pipeline(audio, { ...common, return_timestamps: true });
-      chunks = output.chunks ?? [];
+      try {
+        output = await pipeline(audio, { ...common, return_timestamps: 'word' });
+        chunks = output.chunks ?? [];
+      } catch {
+        wordMode = false;
+        output = await pipeline(audio, { ...common, return_timestamps: true });
+        chunks = output.chunks ?? [];
+      }
     }
 
     opts.onProgress?.(80, 'transcribing');
