@@ -1,13 +1,15 @@
 import type { JobProgress } from '../../core/types';
 
 const STAGE_LABELS: Record<JobProgress['stage'], string> = {
-  queued: 'Queued',
-  decoding: 'Decoding audio',
-  analyzing: 'Analyzing speech',
-  'loading-model': 'Loading model',
-  transcribing: 'Transcribing',
-  formatting: 'Formatting subtitles',
-  done: 'Done',
+  queued: 'En cola',
+  decoding: 'Decodificando audio',
+  analyzing: 'Analizando el habla',
+  'loading-model': 'Cargando el modelo',
+  transcribing: 'Transcribiendo',
+  translating: 'Traduciendo',
+  exporting: 'Exportando video',
+  formatting: 'Formateando subtítulos',
+  done: 'Listo',
   error: 'Error',
 };
 
@@ -20,33 +22,44 @@ function clampPercent(value: number): number {
 
 interface ProgressPanelProps {
   progress: JobProgress;
+  /** `data-testid` for the status line (default `status`). */
+  statusTestId?: string;
+  /** `data-testid` for the bar; pass `null` to render the bar without one. */
+  progressTestId?: string | null;
+  /** Accessible label for the progress bar. */
+  label?: string;
 }
 
-export function ProgressPanel({ progress }: ProgressPanelProps) {
+export function ProgressPanel({
+  progress,
+  statusTestId = 'status',
+  progressTestId = 'progress',
+  label = 'Progreso',
+}: ProgressPanelProps) {
   const percent = clampPercent(progress.percent);
   const rounded = Math.round(percent);
-  const label = STAGE_LABELS[progress.stage] ?? progress.stage;
+  const stageLabel = STAGE_LABELS[progress.stage] ?? progress.stage;
 
   return (
     <div className="progress-panel">
       <div
-        data-testid="status"
+        data-testid={statusTestId}
         data-stage={progress.stage}
         className="status"
         aria-live="polite"
       >
-        <span className="status-stage">{label}</span>
+        <span className="status-stage">{stageLabel}</span>
         <span className="status-percent">{rounded}%</span>
       </div>
 
       <div
-        data-testid="progress"
+        {...(progressTestId ? { 'data-testid': progressTestId } : {})}
         className="progress-track"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={rounded}
-        aria-label="Transcription progress"
+        aria-label={label}
       >
         <div className="progress-fill" style={{ width: `${percent}%` }} />
       </div>

@@ -126,7 +126,7 @@ export function Dropzone({ file, onFile, disabled = false }: DropzoneProps) {
       role="button"
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled}
-      aria-label="Upload an audio or video file"
+      aria-label="Subir un archivo de audio o video"
     >
       <input
         ref={inputRef}
@@ -146,14 +146,16 @@ export function Dropzone({ file, onFile, disabled = false }: DropzoneProps) {
             <span className="dropzone-file-name">{file.name}</span>
             <span className="dropzone-file-size">{formatBytes(file.size)}</span>
           </div>
-          <span className="dropzone-hint">Click or drop another file to replace it</span>
+          <span className="dropzone-hint">
+            Haz clic o suelta otro archivo para reemplazarlo
+          </span>
         </>
       ) : (
         <>
           <UploadIcon />
-          <span className="dropzone-title">Drop an audio or video file here</span>
+          <span className="dropzone-title">Arrastra un audio o video aquí</span>
           <span className="dropzone-hint">
-            or click to browse — WAV, MP3, MP4, MKV, MOV, M4A
+            o haz clic para buscar — WAV, MP3, MP4, MKV, MOV, M4A
           </span>
         </>
       )}

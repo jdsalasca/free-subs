@@ -44,6 +44,34 @@ export function formatTimestamp(ms: number): string {
   return hours > 0 ? `${hours}:${mm}:${ss}.${mmm}` : `${mm}:${ss}.${mmm}`;
 }
 
+/**
+ * Extracts readable plain text from an SRT/VTT body, dropping the cue index
+ * lines and timecodes. Used as a fallback when a translation has no `text`.
+ */
+export function subtitlesToPlainText(body: string): string {
+  const lines = body.replace(/\r\n/g, '\n').split('\n');
+  const text: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (trimmed === 'WEBVTT') {
+      continue;
+    }
+    if (trimmed.includes('-->')) {
+      continue;
+    }
+    if (/^\d+$/.test(trimmed)) {
+      continue;
+    }
+    text.push(trimmed);
+  }
+
+  return text.join(' ');
+}
+
 /** Normalizes an unknown thrown value into a readable message. */
 export function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message.length > 0) {

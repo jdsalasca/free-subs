@@ -32,37 +32,20 @@ async function copyText(text: string): Promise<boolean> {
 
 interface ResultPanelProps {
   job: JobRecord;
-  file: File | null;
+  /** Object URL for the uploaded media, shared with the export preview. */
+  mediaUrl: string | null;
+  isVideo: boolean;
 }
 
-export function ResultPanel({ job, file }: ResultPanelProps) {
+export function ResultPanel({ job, mediaUrl, isVideo }: ResultPanelProps) {
   const result = job.result;
   const cues = useMemo(() => result?.cues ?? [], [result]);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const mediaUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
-
   useEffect(() => {
-    return () => {
-      if (mediaUrl) {
-        URL.revokeObjectURL(mediaUrl);
-      }
-    };
-  }, [mediaUrl]);
-
-  const isVideo = useMemo(() => {
-    if (!file) {
-      return false;
-    }
-    if (file.type.startsWith('video/')) {
-      return true;
-    }
-    if (file.type.startsWith('audio/')) {
-      return false;
-    }
-    return /\.(mp4|mkv|mov|webm|avi|m4v)$/i.test(file.name);
-  }, [file]);
+    setActiveIndex(null);
+  }, [job.id]);
 
   if (!result) {
     return null;
@@ -106,25 +89,25 @@ export function ResultPanel({ job, file }: ResultPanelProps) {
 
   return (
     <div className="result">
-      <div className="result-stats" role="group" aria-label="Transcription statistics">
+      <div className="result-stats" role="group" aria-label="Estadísticas de transcripción">
         <div className="stat">
-          <span className="stat-label">Language</span>
+          <span className="stat-label">Idioma</span>
           <span className="stat-value">{result.language.toUpperCase()}</span>
         </div>
         <div className="stat">
-          <span className="stat-label">Duration</span>
+          <span className="stat-label">Duración</span>
           <span className="stat-value">{formatDuration(durationMs)}</span>
         </div>
         <div className="stat">
-          <span className="stat-label">Cues</span>
+          <span className="stat-label">Subtítulos</span>
           <span className="stat-value">{cueCount}</span>
         </div>
         <div className="stat">
-          <span className="stat-label">Avg CPS</span>
+          <span className="stat-label">CPS medio</span>
           <span className="stat-value">{avgCps.toFixed(1)}</span>
         </div>
         <div className="stat">
-          <span className="stat-label">Max CPS</span>
+          <span className="stat-label">CPS máx</span>
           <span className="stat-value">{maxCps.toFixed(1)}</span>
         </div>
       </div>
@@ -140,11 +123,11 @@ export function ResultPanel({ job, file }: ResultPanelProps) {
       <div className="result-actions">
         <a
           data-testid="download-srt"
-          className="btn btn-download"
+          className="btn btn-primary"
           href={downloadUrl(job.id, 'srt')}
           download
         >
-          Download SRT
+          Descargar SRT
         </a>
         <a
           data-testid="download-vtt"
@@ -152,7 +135,15 @@ export function ResultPanel({ job, file }: ResultPanelProps) {
           href={downloadUrl(job.id, 'vtt')}
           download
         >
-          Download VTT
+          Descargar VTT
+        </a>
+        <a
+          data-testid="download-ass"
+          className="btn btn-download"
+          href={downloadUrl(job.id, 'ass')}
+          download
+        >
+          Descargar ASS
         </a>
         <button
           data-testid="copy-srt"
@@ -162,24 +153,24 @@ export function ResultPanel({ job, file }: ResultPanelProps) {
             void handleCopy();
           }}
         >
-          Copy SRT
+          Copiar SRT
         </button>
         {copied ? (
           <span className="copied-hint" role="status">
-            Copied!
+            ¡Copiado!
           </span>
         ) : null}
       </div>
 
       <div className="transcript-block">
-        <h3 className="block-title">Transcript</h3>
+        <h3 className="block-title">Transcripción</h3>
         <div data-testid="transcript" className="transcript">
           {transcriptText}
         </div>
       </div>
 
       <div className="cues-block">
-        <h3 className="block-title">Cues</h3>
+        <h3 className="block-title">Subtítulos</h3>
         <ol className="cue-list">
           {cues.map((cue, index) => (
             <li

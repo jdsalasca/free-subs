@@ -1,14 +1,33 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Free, fast, local subtitles in Spanish, English and Mandarin. High-quality SRT/VTT generated entirely on your machine."
+      content="Subtítulos gratis, rápidos y locales en español, inglés y chino. SRT/VTT de alta calidad generados por completo en tu equipo."
     />
     <meta name="theme-color" content="#0b0f17" />
     <title>Free Subs</title>
+    <script>
+      // Apply the theme before first paint to avoid a flash of the wrong theme.
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('free-subs-theme');
+          var theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : window.matchMedia &&
+                  window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.colorScheme = theme;
+        } catch (error) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

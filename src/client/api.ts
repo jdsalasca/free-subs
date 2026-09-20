@@ -1,9 +1,27 @@
-import type { JobRecord, LanguageCode, ModelId } from '../core/types';
+import type {
+  ExportRecord,
+  JobRecord,
+  LanguageCode,
+  ModelId,
+  SubtitleExportStyle,
+  SubtitleFormat,
+} from '../core/types';
+import type { TranslationTarget } from './constants';
 
 export interface CreateJobOptions {
   language: LanguageCode;
   model: ModelId;
 }
+
+/** Shape of `GET /api/models`; `fonts`/`defaultStyle` may be absent on old servers. */
+export interface ModelsResponse {
+  models: ModelId[];
+  languages: LanguageCode[];
+  fonts?: string[];
+  defaultStyle?: SubtitleExportStyle;
+}
+
+const JSON_HEADERS: HeadersInit = { 'Content-Type': 'application/json' };
 
 /**
  * Creates a transcription job. The file is sent as the raw request body and
@@ -48,9 +66,97 @@ export async function getJob(id: string): Promise<JobRecord> {
   return (await response.json()) as JobRecord;
 }
 
-/** Builds the download URL for the SRT or VTT subtitle track. */
-export function downloadUrl(id: string, format: 'srt' | 'vtt'): string {
-  return `/api/jobs/${encodeURIComponent(id)}/download?format=${format}`;
+/** Fetches available models, languages, fonts and the default export style. */
+export async function getModels(): Promise<ModelsResponse> {
+  const response = await fetch('/api/models');
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return (await response.json()) as ModelsResponse;
+}
+
+/** Kicks off a translation of an already-finished job. */
+export async function translateJob(
+  id: string,
+  to: TranslationTarget,
+): Promise<{ translationId: string }> {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/translate`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ to }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const data = (await response.json()) as { translationId?: unknown };
+
+  if (typeof data.translationId === 'string' && data.translationId.length > 0) {
+    return { translationId: data.translationId };
+  }
+
+  return { translationId: to };
+}
+
+/** Starts a burned-in video export for an already-finished job. */
+export async function exportJob(
+  id: string,
+  style: SubtitleExportStyle,
+): Promise<{ exportId: string }> {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/export`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ style }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  const data = (await response.json()) as { exportId?: unknown };
+
+  if (typeof data.exportId !== 'string' || data.exportId.length === 0) {
+    throw new Error('The server did not return a valid export id.');
+  }
+
+  return { exportId: data.exportId };
+}
+
+/** Fetches the state of a video export. */
+export async function getExport(exportId: string): Promise<ExportRecord> {
+  const response = await fetch(`/api/exports/${encodeURIComponent(exportId)}`);
+
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+
+  return (await response.json()) as ExportRecord;
+}
+
+/**
+ * Builds a download URL for a subtitle track. Pass `lang` to fetch a
+ * translated track (`?format=srt&lang=es`).
+ */
+export function downloadUrl(
+  id: string,
+  format: SubtitleFormat,
+  lang?: string,
+): string {
+  const params = new URLSearchParams({ format });
+
+  if (lang !== undefined && lang.length > 0) {
+    params.set('lang', lang);
+  }
+
+  return `/api/jobs/${encodeURIComponent(id)}/download?${params.toString()}`;
+}
+
+/** Builds the download URL for a finished burned-in video export. */
+export function exportDownloadUrl(exportId: string): string {
+  return `/api/exports/${encodeURIComponent(exportId)}/download`;
 }
 
 async function readError(response: Response): Promise<string> {

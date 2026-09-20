@@ -1,27 +1,5 @@
 import type { LanguageCode, ModelId } from '../../core/types';
-
-interface LanguageOption {
-  value: LanguageCode;
-  label: string;
-}
-
-interface ModelOption {
-  value: ModelId;
-  label: string;
-}
-
-const LANGUAGES: LanguageOption[] = [
-  { value: 'auto', label: 'Auto detect' },
-  { value: 'es', label: 'Español' },
-  { value: 'en', label: 'English' },
-  { value: 'zh', label: '中文' },
-];
-
-const MODELS: ModelOption[] = [
-  { value: 'tiny', label: 'Tiny — fastest' },
-  { value: 'base', label: 'Base — balanced' },
-  { value: 'small', label: 'Small — most accurate' },
-];
+import { LANGUAGE_OPTIONS, MODEL_OPTIONS } from '../constants';
 
 interface ControlsProps {
   language: LanguageCode;
@@ -35,6 +13,13 @@ interface ControlsProps {
   onTranscribe: () => void;
 }
 
+function labelFor<T extends string>(
+  options: { value: T; label: string }[],
+  value: T,
+): string {
+  return options.find((option) => option.value === value)?.label ?? value;
+}
+
 export function Controls({
   language,
   model,
@@ -44,52 +29,64 @@ export function Controls({
   onModelChange,
   onTranscribe,
 }: ControlsProps) {
+  const currentLanguage = labelFor(LANGUAGE_OPTIONS, language);
+  const currentModel = labelFor(MODEL_OPTIONS, model);
+
   return (
     <div className="controls">
-      <div className="controls-fields">
-        <label className="field">
-          <span className="field-label">Language</span>
-          <select
-            data-testid="language-select"
-            className="select"
-            value={language}
-            onChange={(event) => onLanguageChange(event.target.value as LanguageCode)}
-            disabled={busy}
-          >
-            {LANGUAGES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+      <details className="options" open>
+        <summary className="options-summary">
+          <span className="options-title">Opciones</span>
+          <span className="options-current">
+            {currentLanguage} · {currentModel}
+          </span>
+        </summary>
 
-        <label className="field">
-          <span className="field-label">Model</span>
-          <select
-            data-testid="model-select"
-            className="select"
-            value={model}
-            onChange={(event) => onModelChange(event.target.value as ModelId)}
-            disabled={busy}
-          >
-            {MODELS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+        <div className="controls-fields">
+          <label className="field">
+            <span className="field-label">Idioma del audio</span>
+            <select
+              data-testid="language-select"
+              className="select"
+              value={language}
+              onChange={(event) => onLanguageChange(event.target.value as LanguageCode)}
+              disabled={busy}
+            >
+              {LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span className="field-label">Modelo</span>
+            <select
+              data-testid="model-select"
+              className="select"
+              value={model}
+              onChange={(event) => onModelChange(event.target.value as ModelId)}
+              disabled={busy}
+            >
+              {MODEL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </details>
 
       <button
         data-testid="transcribe-button"
         type="button"
-        className="btn btn-primary"
+        className="btn btn-primary btn-big"
         onClick={onTranscribe}
         disabled={disabled}
       >
-        Transcribe
+        Subtítulos
       </button>
     </div>
   );
