@@ -2,29 +2,31 @@
 
 # free-subs
 
-**Free, fast, local subtitles in Spanish, English and Mandarin.**
-Your audio never leaves your machine — no cloud, no accounts, no per-minute fees.
+**Free, fast, local subtitles in Spanish, English and Mandarin — then translate them and export the video with subtitles burned in.**
+No cloud. No accounts. No per-minute fees. Your media never leaves your machine.
 
-[![unit tests](https://img.shields.io/badge/unit%20tests-140%20passing-brightgreen)](#development)
-[![e2e](https://img.shields.io/badge/e2e-3%20passing-brightgreen)](#development)
+[![unit tests](https://img.shields.io/badge/unit%20tests-261%20passing-brightgreen)](#development)
+[![e2e](https://img.shields.io/badge/e2e-6%20passing-brightgreen)](#development)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![typescript](https://img.shields.io/badge/TypeScript-strict-3178c6)](tsconfig.base.json)
 
+![free-subs dark theme](docs/screenshot.png)
+
+<sub>Light theme is included too — it follows your system by default.</sub>
+
 </div>
 
-![free-subs web UI transcribing a file](docs/screenshot.png)
+## Three buttons
 
-## Why free-subs?
+1. **Subtítulos** — drop a video/audio file and get high-quality SRT/VTT/ASS subtitles in Spanish, English or Mandarin.
+2. **Traducir** — one click to translate the subtitles to any of the three languages, keeping the original timings.
+3. **Exportar video** — style the subtitles (font, colors, outline, shadow, position, background box) with a live preview and burn them into an MP4.
 
-- **100% local.** Whisper runs on your CPU through Transformers.js / ONNX Runtime. Nothing is uploaded anywhere.
-- **Free forever.** No API keys, no subscriptions, no character limits.
-- **Spanish, English and Mandarin**, with automatic language detection.
-- **Broadcast-grade output.** The cue engine applies real typography rules: balanced two-line cues, reading-speed limits (CPS), minimum durations, sentence-aware breaks and CJK-specific wrapping.
-- **Web UI and CLI.** Drag & drop a file, or script it.
+Plus: light/dark theme, local-only processing, and a CLI for scripting.
 
 ## Quick start
 
-Requirements: **Node 20+**. `ffmpeg` is optional — only needed for non-WAV input (WAV works out of the box).
+Requirements: **Node 20+**. `ffmpeg` is needed for non-WAV input and for video export (the Gyan "full" build includes libass).
 
 ```bash
 npm install
@@ -33,22 +35,25 @@ npm start
 # open http://localhost:8787
 ```
 
-The first transcription downloads the Whisper model (default `base`, ~150 MB) into `.cache/models`.
-Point it elsewhere with `FREE_SUBS_CACHE_DIR`, or pick a smaller model in the UI.
+The first transcription downloads the Whisper model (default `base`, ~150 MB) and the first translation downloads an OPUS-MT model (~80 MB) into `.cache/models`. Override with `FREE_SUBS_CACHE_DIR`.
 
 ### CLI
 
 ```bash
 # after npm run build
-node dist/cli.js video.mp4 -l es -m base -o subtitulos.srt
-node dist/cli.js audio.wav -l en -f vtt --stdout > subs.vtt
+node dist/cli.js video.mp4 -l es -m base -o subtitulos.srt          # subtitles
+node dist/cli.js video.mp4 -l en -t es                              # translate to Spanish
+node dist/cli.js video.mp4 -l en -t es --burn salida.mp4            # burn translated subs into video
+node dist/cli.js audio.wav -l en -f ass --stdout > subs.ass         # ASS output
 ```
 
 | Option | Description | Default |
 | --- | --- | --- |
 | `-l, --language <code>` | `auto`, `es`, `en`, `zh` | `auto` |
 | `-m, --model <id>` | `tiny`, `base`, `small` | `base` |
-| `-f, --format <fmt>` | `srt`, `vtt` | `srt` |
+| `-f, --format <fmt>` | `srt`, `vtt`, `ass` | `srt` |
+| `-t, --translate <lang>` | translate subtitles (`es`, `en`, `zh`) | — |
+| `--burn <output>` | burn subtitles into the video (mp4) | — |
 | `-o, --output <path>` | output file | next to the input |
 | `--stdout` | print subtitles to stdout | — |
 
@@ -60,38 +65,52 @@ node dist/cli.js audio.wav -l en -f vtt --stdout > subs.vtt
 | `base` | ⚡⚡ | ★★★ | everyday subtitles (default) |
 | `small` | ⚡ | ★★★★ | difficult audio, accents |
 
+Translation runs fully locally with OPUS-MT models (es↔en, en↔zh; es↔zh pivots through English).
+
 ## How it works
 
 ```
-audio/video ──► decode ──► VAD ──► Whisper (word timestamps) ──► cue engine ──► SRT / VTT
+audio/video ─► decode ─► loudness ─► VAD ─► [denoise if noisy] ─► Whisper ─► post-process ─► cue engine ─► SRT/VTT/ASS
+                                                                                              └─► translate ─► OPUS-MT
+                                                                                              └─► export ─► ASS + ffmpeg/libass
 ```
 
-The interesting part is the **cue engine** (`src/core`), which turns raw ASR output into subtitles people can actually read:
+The engineering is grounded in 2024-2026 speech research, adapted to run in pure TypeScript:
 
-1. **Adaptive VAD** — RMS + zero-crossing rate with a percentile noise floor, hangover and gap merging. Silence is trimmed so Whisper never hallucinates on it.
-2. **Word-level timestamps** — Whisper cross-attention alignment; when a model can't provide them, timings are distributed proportionally by character weight.
-3. **Sentence-aware chunking** — cues break at sentence boundaries when they fit, and at capacity limits when they don't.
-4. **Balanced line breaking** — dynamic programming minimizes the maximum line length, so you never get a 6-word line followed by a 2-word line.
-5. **Reading-speed guardrails** — configurable CPS caps (17 for latin scripts, 9 for CJK), minimum/maximum durations, overlap and gap fixing.
-6. **CJK typography** — Mandarin uses 16 chars/line, no spaces, and kinsoku rules (lines never start with `、。！？` or end with `「『（`).
+| Algorithm | What it does | Basis |
+| --- | --- | --- |
+| **Adaptive VAD** | RMS + zero-crossing with percentile noise floor, hangover, gap merging; silence is trimmed so Whisper never hallucinates on it | Silero/WebRTC comparisons show VAD is the #1 robustness lever (arXiv:2501.11378) |
+| **Hallucination guards** | De-looping repeated n-grams, bag-of-hallucinations filter (EN+ZH), drop word tokens < 50 ms, drop no-speech segments | arXiv:2501.11378, arXiv:2408.16589 (CrisperWhisper) |
+| **Timestamp refinement** | Median-filter smoothing, monotonic repair, snapping boundaries to VAD speech edges | Whisper DTW practice; WhisperX (arXiv:2303.00747) |
+| **Word-level timestamps** | Whisper cross-attention alignment; proportional character-weighted fallback | HF Whisper DTW |
+| **Conservative denoise** | Decision-directed Wiener spectral gating with a −15 dB gain floor and SNR-gated dry/wet mix — clean audio passes through untouched | arXiv:2406.12699 (output alignment); arXiv:2501.11378 found aggressive denoising hurts Whisper |
+| **Loudness normalization** | Active-speech RMS to −20 dBFS with a −1 dBFS peak guard | ITU-R BS.1770 / EBU R128 principles |
+| **Balanced line breaking** | Dynamic programming minimizes the maximum line length | Broadcast subtitling practice |
+| **Reading-speed rules** | CPS caps (17 latin / 9 CJK), min/max durations, overlap and gap fixing | Netflix/BBC subtitle guidelines |
+| **CJK typography** | 16 chars/line, kinsoku (no line starting with `、。！？` or ending with `「『（`), simplified-Chinese normalization | Netflix Chinese TTSG, W3C clreq |
+| **Safe chunking** | `chunk_length_s: 29` and independent chunks (no cross-chunk conditioning) | transformers.js issue #1357; hallucination research |
 
 ## API
 
 | Method | Route | Description |
 | --- | --- | --- |
 | `GET` | `/api/health` | service status |
-| `GET` | `/api/models` | available models and languages |
+| `GET` | `/api/models` | models, languages, fonts and default export style |
 | `POST` | `/api/jobs?language=&model=&filename=` | upload media (raw body), returns `{ id }` |
-| `GET` | `/api/jobs/:id` | job status, progress and result |
-| `GET` | `/api/jobs/:id/download?format=srt\|vtt` | download subtitles |
+| `GET` | `/api/jobs/:id` | status, progress, result, translations and exports |
+| `POST` | `/api/jobs/:id/translate` | `{ "to": "es" }` → starts a local translation |
+| `POST` | `/api/jobs/:id/export` | `{ "style": { ... } }` → burns subtitles into an MP4 |
+| `GET` | `/api/exports/:exportId` | export status |
+| `GET` | `/api/exports/:exportId/download` | download the exported MP4 |
+| `GET` | `/api/jobs/:id/download?format=srt\|vtt\|ass[&lang=es]` | download subtitles (original or translated) |
 
 ## Development
 
-Built with TDD: **140 unit tests** (Vitest) cover the cue engine, audio decoding, VAD, language detection and the HTTP API; **3 Playwright E2E tests** drive a real browser against the real model, transcribing real TTS speech and downloading real SRT/VTT files.
+Built with TDD: **261 unit tests** (Vitest) cover the cue engine, ASS serialization, FFT/denoise, post-processing, audio decoding, VAD, translation routing and the HTTP API; **6 Playwright E2E tests** drive a real browser against the real models — transcribing real TTS speech, translating it, toggling themes and exporting a real MP4 with burned-in subtitles.
 
 ```bash
 npm test          # unit tests
-npm run test:e2e  # end-to-end (builds, warms the model, real transcription)
+npm run test:e2e  # end-to-end (builds, warms the model, real transcription/translation/export)
 npm run fixtures  # regenerate speech fixtures (Windows TTS; committed for other OSes)
 npm run dev       # dev server + Vite HMR
 npm run typecheck # strict TypeScript
@@ -99,19 +118,24 @@ npm run typecheck # strict TypeScript
 
 ## Roadmap
 
-- [ ] Translation to more languages
 - [ ] Batch processing / folder watching
-- [ ] Burned-in subtitles (ffmpeg)
+- [ ] Subtitle editor (edit text before export)
 - [ ] Speaker diarization
 - [ ] GPU acceleration
+- [ ] More languages for transcription and translation
 
 ## Español
 
-**Subtítulos gratis, rápidos y 100% locales en español, inglés y mandarín.** Sin nube, sin cuentas, sin límites: Whisper corre en tu máquina. La interfaz aplica reglas reales de tipografía (líneas balanceadas por programación dinámica, velocidad de lectura máxima, cortes por frase, reglas CJK) y exporta SRT/VTT. Interfaz web + CLI.
+**Subtítulos gratis, rápidos y 100% locales en español, inglés y mandarín.** Sin nube, sin cuentas, sin límites: Whisper y los modelos de traducción corren en tu máquina.
+
+- **Botón Subtítulos**: suelta un video y obtén SRT/VTT/ASS con tipografía profesional (líneas balanceadas por programación dinámica, velocidad de lectura, reglas CJK).
+- **Botón Traducir**: traduce los subtítulos entre español, inglés y mandarín conservando los tiempos.
+- **Botón Exportar video**: elige fuente, colores, contorno, sombra y posición con vista previa en vivo, y quema los subtítulos en un MP4 con ffmpeg/libass.
+- **Modo claro/oscuro** automático según tu sistema.
 
 ```bash
 npm install && npm run build && npm start   # http://localhost:8787
-node dist/cli.js video.mp4 -l es -m base
+node dist/cli.js video.mp4 -l es -t en --burn salida.mp4
 ```
 
 ## License

@@ -1,5 +1,6 @@
 /**
- * Generates docs/screenshot.png from the real app running a real transcription.
+ * Generates docs/screenshot.png (dark) and docs/screenshot-light.png (light)
+ * from the real app running a real transcription.
  * Usage: npm run build && npx tsx scripts/make-screenshot.ts
  */
 import { spawn } from 'node:child_process';
@@ -11,7 +12,8 @@ import { chromium } from '@playwright/test';
 const PORT = 8899;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = path.join(root, 'tests', 'e2e', 'fixtures', 'hello-en.wav');
-const outFile = path.join(root, 'docs', 'screenshot.png');
+const darkFile = path.join(root, 'docs', 'screenshot.png');
+const lightFile = path.join(root, 'docs', 'screenshot-light.png');
 
 async function waitForHealth(url: string, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -40,7 +42,11 @@ try {
   await waitForHealth(`${base}/api/health`);
 
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2 });
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 900 },
+    deviceScaleFactor: 2,
+    colorScheme: 'light',
+  });
   await page.goto(base);
   await page.getByTestId('file-input').setInputFiles(fixture);
   await page.getByTestId('language-select').selectOption('en');
@@ -48,10 +54,15 @@ try {
   await page.getByTestId('transcribe-button').click();
   await page.getByTestId('status-done').waitFor({ timeout: 8 * 60 * 1000 });
 
-  await mkdir(path.dirname(outFile), { recursive: true });
-  await page.screenshot({ path: outFile, fullPage: true });
+  await mkdir(path.dirname(darkFile), { recursive: true });
+  await page.screenshot({ path: lightFile, fullPage: true });
+
+  await page.getByTestId('theme-toggle').click();
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: darkFile, fullPage: true });
+
   await browser.close();
-  process.stdout.write(`screenshot saved to ${outFile}\n`);
+  process.stdout.write(`screenshots saved to ${darkFile} and ${lightFile}\n`);
 } finally {
   server.kill();
 }
