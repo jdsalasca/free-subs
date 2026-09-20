@@ -31,6 +31,30 @@ const CLOSING_CHARS = new Set([
 const CJK_TERMINATORS = new Set(['。', '！', '？', '；']);
 /** Latin terminators, which need a following space (or end of text). */
 const LATIN_TERMINATORS = new Set(['.', '!', '?', ';', '…']);
+/**
+ * Latin titles/abbreviations whose trailing dot is not a sentence boundary.
+ * Stored lower-case and without the dot.
+ */
+const ABBREVIATIONS = new Set([
+  'sr',
+  'sra',
+  'srta',
+  'dr',
+  'dra',
+  'mr',
+  'mrs',
+  'ms',
+  'prof',
+  'st',
+]);
+/**
+ * Grapheme segmenter (Node 20+): keeps combining marks and emoji sequences
+ * counted once. `null` when the runtime lacks `Intl.Segmenter`.
+ */
+const GRAPHEME_SEGMENTER: Intl.Segmenter | null =
+  typeof Intl !== 'undefined' && 'Segmenter' in Intl
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null;
 
 /** Whether a language code refers to a CJK script (zh*, cmn, ja*, ko*). */
 export function isCjkLanguage(lang: string): boolean {
@@ -97,20 +121,51 @@ export function normalizeForSubtitles(text: string, lang: string): string {
   return out;
 }
 
-/** Number of non-whitespace characters (code points). */
+/**
+ * Number of visible characters (grapheme clusters). Combining marks and
+ * zero-width-joiner emoji sequences count as a single character.
+ */
 export function visibleLength(text: string): number {
+  if (GRAPHEME_SEGMENTER !== null) {
+    let count = 0;
+    for (const { segment } of GRAPHEME_SEGMENTER.segment(text)) {
+      if (!/\s/u.test(segment)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // Fallback: skip whitespace and combining marks (no full emoji clustering).
   let count = 0;
   for (const ch of text) {
-    if (!/\s/.test(ch)) {
+    if (!/\s/u.test(ch) && !/\p{M}/u.test(ch)) {
       count++;
     }
   }
   return count;
 }
 
+/** Whether the `.` at `dotIndex` closes a known title/abbreviation. */
+function isAbbreviationDot(text: string, dotIndex: number): boolean {
+  let start = dotIndex;
+  while (start > 0) {
+    const prev = text[start - 1];
+    if (prev !== undefined && /[A-Za-z\u00c0-\u024f]/.test(prev)) {
+      start--;
+    } else {
+      break;
+    }
+  }
+  if (start === dotIndex) {
+    return false;
+  }
+  return ABBREVIATIONS.has(text.slice(start, dotIndex).toLowerCase());
+}
+
 /**
  * Split text into sentences. Punctuation stays attached; decimals like
- * `3.14` are never treated as sentence boundaries.
+ * `3.14` and titles like `Sr.`/`Mr.` are never treated as boundaries.
  */
 export function splitSentences(text: string, lang: string): string[] {
   const normalized = normalizeWhitespace(text);
@@ -135,6 +190,10 @@ export function splitSentences(text: string, lang: string): string[] {
       if (ch === '.') {
         const next = normalized[i + 1];
         if (next !== undefined && /\d/.test(next)) {
+          i++;
+          continue;
+        }
+        if (isAbbreviationDot(normalized, i)) {
           i++;
           continue;
         }

@@ -63,16 +63,16 @@ afterEach(() => {
 });
 
 describe('toPinyin', () => {
-  it('adds tone marks to Han text', () => {
-    expect(toPinyin('你好')).toBe('nǐ hǎo');
+  it('adds tone marks to Han text (with third-tone sandhi)', () => {
+    expect(toPinyin('你好')).toBe('ní hǎo');
   });
 
   it('matches the spec phrase and normalises fullwidth punctuation', () => {
-    expect(toPinyin('你好，世界')).toBe('nǐ hǎo, shì jiè');
+    expect(toPinyin('你好，世界')).toBe('ní hǎo, shì jiè');
   });
 
   it('preserves punctuation in the output', () => {
-    expect(toPinyin('你好，世界。')).toBe('nǐ hǎo, shì jiè。');
+    expect(toPinyin('你好，世界。')).toBe('ní hǎo, shì jiè。');
   });
 
   it('returns an empty string for empty input', () => {
@@ -80,18 +80,18 @@ describe('toPinyin', () => {
   });
 
   it('leaves non-Chinese words as-is inside mixed text', () => {
-    expect(toPinyin('Hello 你好 world')).toBe('Hello nǐ hǎo world');
+    expect(toPinyin('Hello 你好 world')).toBe('Hello ní hǎo world');
     expect(toPinyin('Hello')).toBe('Hello');
   });
 
   it('keeps a single space between syllables when the source is spaced', () => {
-    expect(toPinyin('你好 世界')).toBe('nǐ hǎo shì jiè');
+    expect(toPinyin('你好 世界')).toBe('ní hǎo shì jiè');
   });
 });
 
 describe('pinyinForWords', () => {
   it('returns one pinyin string per word, aligned by index', () => {
-    expect(pinyinForWords([{ text: '你好' }, { text: '世界' }])).toEqual(['nǐ hǎo', 'shì jiè']);
+    expect(pinyinForWords([{ text: '你好' }, { text: '世界' }])).toEqual(['ní hǎo', 'shì jiè']);
   });
 
   it('leaves non-Chinese words untouched', () => {
@@ -122,7 +122,7 @@ describe('annotateCuesWithPinyin', () => {
 
     expect(annotated).not.toBe(cues);
     expect(annotated[0]).not.toBe(cues[0]);
-    expect(annotated[0]?.pinyin).toBe('nǐ hǎo shì jiè');
+    expect(annotated[0]?.pinyin).toBe('ní hǎo shì jiè');
     // `words` is kept untouched (same reference, no word-level pinyin added here).
     expect(annotated[0]?.words).toBe(cues[0]?.words);
     expect(cues[0]?.pinyin).toBeUndefined();
@@ -161,6 +161,6 @@ describe('transcribeFile with a Chinese stub engine', () => {
       expect(typeof cue.pinyin).toBe('string');
       expect(cue.pinyin).not.toBe('');
     }
-    expect(result.cues.some((cue) => cue.pinyin === 'nǐ hǎo shì jiè')).toBe(true);
+    expect(result.cues.some((cue) => cue.pinyin === 'ní hǎo shì jiè')).toBe(true);
   });
 });

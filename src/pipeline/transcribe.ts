@@ -23,6 +23,7 @@ import { estimateSnrDb, spectralDenoise } from './denoise';
 import { TransformersWhisperEngine } from './engine-transformers';
 import { highPass } from './filters';
 import { detectLanguageFromText } from './language';
+import { annotateCuesWithIpa } from './ipa';
 import { normalizeLoudness } from './loudness';
 import { annotateCuesWithPinyin } from './pinyin';
 import { normalizeSegments } from './postprocess';
@@ -182,6 +183,8 @@ export async function transcribeFile(
   let cues = segmentsToCues(segments, style, language);
   if (language.startsWith('zh')) {
     cues = annotateCuesWithPinyin(cues);
+  } else if (language.startsWith('en') || language.startsWith('es')) {
+    cues = annotateCuesWithIpa(cues, language);
   }
   const srt = serializeSrt(cues);
   const vtt = serializeVtt(cues);

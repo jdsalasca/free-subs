@@ -33,9 +33,9 @@ describe('buildStudyDocument', () => {
     expect(doc.version).toBe(1);
     expect(doc.language).toBe('zh');
     expect(doc.durationMs).toBe(2000);
-    expect(doc.cues[0]?.pinyin).toBe('nǐ hǎo shì jiè');
+    expect(doc.cues[0]?.pinyin).toBe('ní hǎo shì jiè');
     expect(doc.cues[0]?.words).toEqual([
-      { text: '你好', startMs: 0, endMs: 500, pinyin: 'nǐ hǎo' },
+      { text: '你好', startMs: 0, endMs: 500, pinyin: 'ní hǎo' },
       { text: '世界', startMs: 500, endMs: 1000, pinyin: 'shì jiè' },
     ]);
   });
@@ -47,6 +47,18 @@ describe('buildStudyDocument', () => {
     expect(doc.cues[0]?.words[0]?.pinyin).toBeUndefined();
     expect(doc.cues[0] !== undefined && 'pinyin' in doc.cues[0]).toBe(false);
     expect(doc.cues[0]?.words[0] !== undefined && 'pinyin' in doc.cues[0].words[0]).toBe(false);
+  });
+
+  it('adds ipa to English and Spanish cues', () => {
+    const english = buildStudyDocument({ language: 'en', durationMs: 1000, cues: [EN_CUE] });
+    const spanish = buildStudyDocument({
+      language: 'es',
+      durationMs: 1000,
+      cues: [cue(1, 0, 1000, ['hola'])],
+    });
+
+    expect(english.cues[0]?.ipa).toBe('həˈloʊ ˈwɝld');
+    expect(spanish.cues[0]?.ipa).toBe('ˈola');
   });
 
   it('always emits a words array, even without word timings', () => {
@@ -73,7 +85,7 @@ describe('buildStudyDocument', () => {
 
     expect(Object.keys(doc.translations)).toEqual(['en', 'zh']);
     expect(doc.translations.en?.cues[0]?.pinyin).toBeUndefined();
-    expect(doc.translations.zh?.cues[0]?.pinyin).toBe('nǐ hǎo');
+    expect(doc.translations.zh?.cues[0]?.pinyin).toBe('ní hǎo');
     expect(doc.translations.zh?.cues[0]?.words).toEqual([]);
   });
 
@@ -110,11 +122,12 @@ describe('serializeStudy', () => {
     expect(Object.keys(parsedWord)).toEqual(['text', 'startMs', 'endMs', 'pinyin']);
   });
 
-  it('omits the pinyin key for non-Chinese cues in the serialized output', () => {
+  it('omits the pinyin key for non-Chinese cues and adds ipa instead', () => {
     const doc = buildStudyDocument({ language: 'en', durationMs: 1000, cues: [EN_CUE] });
     const parsed = JSON.parse(serializeStudy(doc)) as { cues: Array<Record<string, unknown>> };
 
-    expect(Object.keys(parsed.cues[0]!)).toEqual(['startMs', 'endMs', 'lines', 'words']);
+    expect(Object.keys(parsed.cues[0]!)).toEqual(['startMs', 'endMs', 'lines', 'words', 'ipa']);
+    expect(parsed.cues[0]!.ipa).toBe('həˈloʊ ˈwɝld');
     const word = (parsed.cues[0]!.words as Array<Record<string, unknown>>)[0]!;
     expect(Object.keys(word)).toEqual(['text', 'startMs', 'endMs']);
   });

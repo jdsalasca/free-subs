@@ -17,6 +17,8 @@ import type { SubtitleStyle } from './types';
 const CJK_CLOSING = new Set(['、', '。', '，', '！', '？', '：', '；', '」', '』', '）', '】', '》']);
 /** Characters that must never end a CJK line. */
 const CJK_OPENING = new Set(['「', '『', '（', '【', '《']);
+/** Han ideographs (CJK Unified Ideographs + Extension A). */
+const CJK_IDEOGRAPH_RE = /[\u3400-\u4dbf\u4e00-\u9fff]/;
 
 interface Partition {
   maxLen: number;
@@ -187,6 +189,180 @@ function wrapCjk(text: string, style: SubtitleStyle): string[] {
   return lines;
 }
 
+interface Unit {
+  text: string;
+  cjk: boolean;
+}
+
+interface ParsedUnits {
+  units: Unit[];
+  /** Whether a whitespace run preceded the unit in the source text. */
+  spaceBefore: boolean[];
+}
+
+/** Split mixed CJK/latin text into atomic units; latin runs stay whole. */
+function parseUnits(text: string): ParsedUnits {
+  const units: Unit[] = [];
+  const spaceBefore: boolean[] = [];
+  let pendingSpace = false;
+  let latin = '';
+
+  const flushLatin = (): void => {
+    if (latin !== '') {
+      units.push({ text: latin, cjk: false });
+      spaceBefore.push(pendingSpace);
+      pendingSpace = false;
+      latin = '';
+    }
+  };
+
+  for (const ch of text) {
+    if (/\s/.test(ch)) {
+      flushLatin();
+      pendingSpace = true;
+    } else if (CJK_IDEOGRAPH_RE.test(ch)) {
+      flushLatin();
+      units.push({ text: ch, cjk: true });
+      spaceBefore.push(pendingSpace);
+      pendingSpace = false;
+    } else {
+      latin += ch;
+    }
+  }
+  flushLatin();
+  return { units, spaceBefore };
+}
+
+function unitWidth(unit: Unit): number {
+  return unit.cjk ? 1 : visibleLength(unit.text);
+}
+
+/** Rendered width of `units[from..to]`, counting separating spaces. */
+function groupWidth(parsed: ParsedUnits, from: number, to: number): number {
+  let total = 0;
+  for (let i = from; i <= to; i++) {
+    if (i > from && parsed.spaceBefore[i] === true) {
+      total += 1;
+    }
+    const unit = parsed.units[i];
+    if (unit !== undefined) {
+      total += unitWidth(unit);
+    }
+  }
+  return total;
+}
+
+function renderGroup(parsed: ParsedUnits, from: number, to: number): string {
+  let out = '';
+  for (let i = from; i <= to; i++) {
+    if (i > from && parsed.spaceBefore[i] === true) {
+      out += ' ';
+    }
+    const unit = parsed.units[i];
+    if (unit !== undefined) {
+      out += unit.text;
+    }
+  }
+  return out;
+}
+
+/** Partition units into exactly `k` lines minimizing the longest width. */
+function bestUnitPartition(parsed: ParsedUnits, k: number): string[] | null {
+  const n = parsed.units.length;
+  if (k <= 0 || n === 0 || k > n) {
+    return null;
+  }
+
+  const dp: number[][] = Array.from({ length: k + 1 }, () =>
+    new Array<number>(n + 1).fill(Number.POSITIVE_INFINITY),
+  );
+  const choice: number[][] = Array.from({ length: k + 1 }, () =>
+    new Array<number>(n + 1).fill(-1),
+  );
+
+  const firstRow = dp[0];
+  if (firstRow !== undefined) {
+    firstRow[0] = 0;
+  }
+
+  for (let j = 1; j <= k; j++) {
+    for (let i = j; i <= n; i++) {
+      let best = Number.POSITIVE_INFINITY;
+      let bestPrev = -1;
+      for (let p = j - 1; p < i; p++) {
+        const prevRow = dp[j - 1];
+        const prev = prevRow === undefined ? undefined : prevRow[p];
+        if (prev === undefined || !Number.isFinite(prev)) {
+          continue;
+        }
+        const cost = Math.max(prev, groupWidth(parsed, p, i - 1));
+        if (cost < best) {
+          best = cost;
+          bestPrev = p;
+        }
+      }
+      const row = dp[j];
+      const choiceRow = choice[j];
+      if (row !== undefined) {
+        row[i] = best;
+      }
+      if (choiceRow !== undefined) {
+        choiceRow[i] = bestPrev;
+      }
+    }
+  }
+
+  const finalRow = dp[k];
+  const finalCost = finalRow === undefined ? undefined : finalRow[n];
+  if (finalCost === undefined || !Number.isFinite(finalCost)) {
+    return null;
+  }
+
+  const lines: string[] = [];
+  let i = n;
+  for (let j = k; j >= 1; j--) {
+    const choiceRow = choice[j];
+    const p = choiceRow === undefined ? -1 : (choiceRow[i] ?? -1);
+    if (p < 0) {
+      return null;
+    }
+    lines.unshift(renderGroup(parsed, p, i - 1));
+    i = p;
+  }
+  return lines;
+}
+
+/**
+ * Wrap mixed CJK/latin text without breaking inside latin words. Latin runs
+ * are atomic units; lines are balanced by rendered width.
+ */
+function wrapMixed(text: string, style: SubtitleStyle): string[] {
+  const parsed = parseUnits(text);
+  const n = parsed.units.length;
+  if (n === 0) {
+    return [];
+  }
+
+  const single = renderGroup(parsed, 0, n - 1);
+  if (n === 1 || groupWidth(parsed, 0, n - 1) <= style.maxCharsPerLine) {
+    return [single];
+  }
+
+  const maxLines = Math.max(1, style.maxLines);
+  for (let k = 2; k <= maxLines; k++) {
+    const lines = bestUnitPartition(parsed, k);
+    if (
+      lines !== null &&
+      lines.every((line) => totalLength(line) <= style.maxCharsPerLine)
+    ) {
+      return lines;
+    }
+  }
+
+  const fallback = bestUnitPartition(parsed, maxLines);
+  return fallback === null ? [single] : fallback;
+}
+
 /** Wrap normalized text into at most `style.maxLines` display lines. */
 export function wrapLines(
   text: string,
@@ -199,6 +375,11 @@ export function wrapLines(
   }
 
   const script = detectScript(normalized);
-  const useCjk = script === 'cjk' || (script === 'mixed' && isCjkLanguage(lang));
-  return useCjk ? wrapCjk(normalized, style) : wrapLatin(normalized, style);
+  if (script === 'cjk') {
+    return wrapCjk(normalized, style);
+  }
+  if (script === 'mixed' && isCjkLanguage(lang)) {
+    return wrapMixed(normalized, style);
+  }
+  return wrapLatin(normalized, style);
 }

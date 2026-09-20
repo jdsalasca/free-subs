@@ -39,6 +39,8 @@ export interface SubtitleCue {
   words?: WordTiming[];
   /** Mandarin pinyin for the cue text (tone marks), when the language is Chinese. */
   pinyin?: string;
+  /** IPA pronunciation for the cue text, when the language is English or Spanish. */
+  ipa?: string;
 }
 
 /**

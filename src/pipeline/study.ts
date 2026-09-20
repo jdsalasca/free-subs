@@ -3,9 +3,11 @@
  *
  * The exported JSON is a frozen contract consumed by study tools: every cue
  * is a flat `{ startMs, endMs, lines, words, pinyin? }` object, `words` is
- * always an array, and `pinyin` only appears for Chinese (`zh*`) content.
+ * always an array, `pinyin` only appears for Chinese (`zh*`) content and
+ * `ipa` only for English/Spanish (`en*`/`es*`) content.
  */
 import type { SubtitleCue, WordTiming } from '../core';
+import { toIpa } from './ipa';
 import { toPinyin } from './pinyin';
 
 export interface StudyWord {
@@ -21,6 +23,7 @@ export interface StudyCue {
   lines: string[];
   words: StudyWord[];
   pinyin?: string;
+  ipa?: string;
 }
 
 export interface StudyTranslation {
@@ -46,6 +49,11 @@ function isChinese(language: string): boolean {
   return language.toLowerCase().startsWith('zh');
 }
 
+function hasIpa(language: string): boolean {
+  const lower = language.toLowerCase();
+  return lower.startsWith('en') || lower.startsWith('es');
+}
+
 function buildStudyWord(word: WordTiming, chinese: boolean): StudyWord {
   const result: StudyWord = {
     text: word.text,
@@ -58,7 +66,8 @@ function buildStudyWord(word: WordTiming, chinese: boolean): StudyWord {
   return result;
 }
 
-function buildStudyCue(cue: SubtitleCue, chinese: boolean): StudyCue {
+function buildStudyCue(cue: SubtitleCue, language: string): StudyCue {
+  const chinese = isChinese(language);
   const words = (cue.words ?? []).map((word) => buildStudyWord(word, chinese));
   const result: StudyCue = {
     startMs: cue.startMs,
@@ -68,21 +77,21 @@ function buildStudyCue(cue: SubtitleCue, chinese: boolean): StudyCue {
   };
   if (chinese) {
     result.pinyin = toPinyin(cue.lines.join(' '));
+  } else if (hasIpa(language)) {
+    result.ipa = cue.ipa ?? toIpa(cue.lines.join(' '), language);
   }
   return result;
 }
 
 /** Build a deterministic study document from cues and optional translations. */
 export function buildStudyDocument(input: BuildStudyDocumentInput): StudyDocument {
-  const documentChinese = isChinese(input.language);
-  const cues = input.cues.map((cue) => buildStudyCue(cue, documentChinese));
+  const cues = input.cues.map((cue) => buildStudyCue(cue, input.language));
 
   const translations: Record<string, StudyTranslation> = {};
   const provided = input.translations ?? {};
   for (const language of Object.keys(provided)) {
-    const translationChinese = isChinese(language);
     translations[language] = {
-      cues: (provided[language] ?? []).map((cue) => buildStudyCue(cue, translationChinese)),
+      cues: (provided[language] ?? []).map((cue) => buildStudyCue(cue, language)),
     };
   }
 
