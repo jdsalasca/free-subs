@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import path from 'node:path';
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -10,6 +11,14 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:8787',
     trace: 'retain-on-failure',
+    permissions: ['microphone'],
+    launchOptions: {
+      args: [
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+        `--use-file-for-fake-audio-capture=${path.resolve('tests/e2e/fixtures/hello-en.wav')}`,
+      ],
+    },
   },
   globalSetup: './tests/e2e/global-setup.ts',
   webServer: {

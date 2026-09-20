@@ -149,13 +149,14 @@ test.describe('free-subs end to end', () => {
     const doc = JSON.parse(raw) as {
       version: number;
       language: string;
-      cues: { lines: string[]; words: unknown[] }[];
+      cues: { lines: string[]; words: unknown[]; ipa?: string }[];
       translations: Record<string, unknown>;
     };
     expect(doc.version).toBe(1);
     expect(doc.language).toBe('en');
     expect(doc.cues.length).toBeGreaterThan(0);
     expect(Array.isArray(doc.cues[0]?.words)).toBe(true);
+    expect(typeof doc.cues[0]?.ipa).toBe('string');
     expect(doc.translations).toEqual({});
   });
 
@@ -170,6 +171,22 @@ test.describe('free-subs end to end', () => {
     const body = await response.body();
     expect(body.length).toBeGreaterThan(1000);
     expect(body.subarray(4, 8).toString('ascii')).toBe('ftyp');
+  });
+
+  test('live mode transcribes from the microphone in real time', async ({ page }) => {
+    test.setTimeout(4 * 60 * 1000);
+    await page.goto('/');
+    await page.getByTestId('live-model').selectOption('tiny');
+    await page.getByTestId('live-language').selectOption('en');
+    await page.getByTestId('live-translate').selectOption('es');
+    await page.getByTestId('live-start').click();
+    await expect(page.getByTestId('live-status')).toContainText(/Escuchando|Transcribiendo/, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId('live-transcript')).toContainText(/hello/i, { timeout: 150_000 });
+    await expect(page.getByTestId('live-translation')).not.toBeEmpty({ timeout: 150_000 });
+    await page.getByTestId('live-stop').click();
+    await expect(page.getByTestId('live-status')).toContainText('Inactivo', { timeout: 30_000 });
   });
 });
 
