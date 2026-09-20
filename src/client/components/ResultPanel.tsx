@@ -202,6 +202,11 @@ export function ResultPanel({ job, mediaUrl, isVideo, showPinyin = false }: Resu
                     {cue.pinyin}
                   </span>
                 ) : null}
+                {showPinyin && cue.ipa ? (
+                  <span className="cue-pinyin" data-testid="ipa-line">
+                    {cue.ipa}
+                  </span>
+                ) : null}
               </span>
             </li>
           ))}

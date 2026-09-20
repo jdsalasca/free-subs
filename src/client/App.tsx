@@ -25,6 +25,7 @@ import { Controls } from './components/Controls';
 import { Dropzone } from './components/Dropzone';
 import { EditorPanel } from './components/EditorPanel';
 import { ExportPanel } from './components/ExportPanel';
+import { LivePanel } from './components/LivePanel';
 import { ProgressPanel } from './components/ProgressPanel';
 import { ResultPanel } from './components/ResultPanel';
 import { ThemeToggle } from './components/ThemeToggle';
@@ -79,17 +80,16 @@ export default function App() {
   const busy = phase === 'processing';
   const ready = phase === 'done' && job?.result !== undefined;
 
-  // The pinyin toggle is only offered when a displayed cue has pinyin, either
-  // in the original result or in any stored translation.
-  const hasPinyin = useMemo(() => {
-    const originalHasPinyin = (job?.result?.cues ?? []).some((cue) =>
-      Boolean(cue.pinyin),
-    );
-    if (originalHasPinyin) {
+  // The pronunciation toggle is offered when a displayed cue has pinyin (zh)
+  // or IPA (en/es), either in the original result or in any stored translation.
+  const hasPronunciation = useMemo(() => {
+    const hasIt = (cues: { pinyin?: string; ipa?: string }[]): boolean =>
+      cues.some((cue) => Boolean(cue.pinyin) || Boolean(cue.ipa));
+    if (hasIt(job?.result?.cues ?? [])) {
       return true;
     }
     return Object.values(job?.translations ?? {}).some((record) =>
-      (record.cues ?? []).some((cue) => Boolean(cue.pinyin)),
+      hasIt(record.cues ?? []),
     );
   }, [job]);
 
@@ -518,6 +518,8 @@ export default function App() {
           ) : null}
         </section>
 
+        <LivePanel />
+
         {phase === 'error' && error ? (
           <section className="card card-error">
             <h2 className="card-title">
@@ -550,7 +552,7 @@ export default function App() {
             <h2 className="card-title">
               <span className="step">✓</span> Resultado
             </h2>
-            {hasPinyin ? (
+            {hasPronunciation ? (
               <label className="check-field pinyin-toggle">
                 <input
                   data-testid="pinyin-toggle"
@@ -559,7 +561,7 @@ export default function App() {
                   checked={showPinyin}
                   onChange={(event) => setShowPinyin(event.target.checked)}
                 />
-                Mostrar pinyin
+                Mostrar pronunciación
               </label>
             ) : null}
             <ResultPanel

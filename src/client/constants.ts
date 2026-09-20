@@ -28,6 +28,34 @@ export const TRANSLATION_OPTIONS: SelectOption<TranslationTarget>[] = [
   { value: 'zh', label: '中文' },
 ];
 
+/**
+ * Live-mode language, model and translation choices. The live selects are
+ * frozen by `docs/specs/ui-live.md`, so their labels differ slightly from the
+ * batch controls above.
+ */
+export const LIVE_LANGUAGE_OPTIONS: SelectOption<LanguageCode>[] = [
+  { value: 'auto', label: 'Detectar automáticamente' },
+  { value: 'es', label: 'Español' },
+  { value: 'en', label: 'English' },
+  { value: 'zh', label: '中文' },
+];
+
+export const LIVE_MODEL_OPTIONS: SelectOption<ModelId>[] = [
+  { value: 'tiny', label: 'Tiny — rápido (recomendado)' },
+  { value: 'base', label: 'Base' },
+  { value: 'small', label: 'Small' },
+];
+
+/** Live translation target; `none` means "do not translate". */
+export type LiveTranslateTarget = 'none' | TranslationTarget;
+
+export const LIVE_TRANSLATE_OPTIONS: SelectOption<LiveTranslateTarget>[] = [
+  { value: 'none', label: 'No traducir' },
+  { value: 'es', label: 'Español' },
+  { value: 'en', label: 'English' },
+  { value: 'zh', label: '中文' },
+];
+
 export const POSITION_OPTIONS: SelectOption<SubtitleExportStyle['position']>[] = [
   { value: 'bottom', label: 'Abajo' },
   { value: 'middle', label: 'Medio' },

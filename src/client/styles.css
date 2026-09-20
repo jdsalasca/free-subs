@@ -835,6 +835,87 @@ video.media-player {
 }
 
 /* --------------------------------------------------------------------------
+   Live mode (beta)
+   -------------------------------------------------------------------------- */
+
+.live-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 0 transparent;
+}
+
+.live-dot.is-live {
+  background: var(--danger);
+  animation: live-pulse 1.5s ease-out infinite;
+}
+
+@keyframes live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot.is-live {
+    animation: none;
+  }
+}
+
+.live-hint {
+  margin-bottom: 16px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.live-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.live-status {
+  min-height: 1.3em;
+  margin-top: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.live-transcript {
+  min-height: 96px;
+}
+
+.live-translation {
+  min-height: 60px;
+}
+
+.live-line {
+  display: block;
+}
+
+.live-partial {
+  display: block;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.live-note {
+  margin-top: 16px;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}
+
+/* --------------------------------------------------------------------------
    Export: style editor + live preview
    -------------------------------------------------------------------------- */
 
