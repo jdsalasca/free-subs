@@ -115,7 +115,7 @@ describe('study JSON and clips', () => {
     expect(doc.durationMs).toBe(5000);
     expect(doc.cues).toHaveLength(2);
     expect(Array.isArray(doc.cues[0]?.words)).toBe(true);
-    expect(doc.translations.zh?.cues[0]?.pinyin).toContain('nǐ');
+    expect(doc.translations.zh?.cues[0]?.pinyin).toContain('ní');
   });
 
   it('returns an empty translations map when nothing is translated', async () => {
@@ -188,7 +188,7 @@ describe('study JSON and clips', () => {
           translations?: Record<string, { status: string; cues?: { pinyin?: string }[] }>;
         };
         if (job.translations?.zh?.status === 'done') {
-          expect(job.translations.zh.cues?.[0]?.pinyin).toContain('nǐ');
+          expect(job.translations.zh.cues?.[0]?.pinyin).toContain('ní');
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 10));
